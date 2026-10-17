@@ -1,0 +1,58 @@
+[
+  {
+    "id": "aha_bp_guidelines",
+    "title": "AHA/ACC Blood Pressure Categories and Cardiovascular Risk",
+    "source": "American Heart Association / American College of Cardiology 2017 Guidelines",
+    "category": "Clinical Vitals",
+    "content": "Blood pressure categories recognized by the American Heart Association (AHA) and American College of Cardiology (ACC): Normal: Systolic < 120 mmHg and diastolic < 80 mmHg. Elevated: Systolic 120-129 mmHg and diastolic < 80 mmHg. Stage 1 Hypertension: Systolic 130-139 mmHg or diastolic 80-89 mmHg. Stage 2 Hypertension: Systolic 140 mmHg or higher, or diastolic 90 mmHg or higher. Hypertensive Crisis: Systolic higher than 180 mmHg and/or diastolic higher than 120 mmHg, requiring immediate emergency medical evaluation. Chronic high blood pressure strains coronary arteries, accelerates atherosclerosis, and drastically increases the risk of myocardial infarction (heart attack) and stroke."
+  },
+  {
+    "id": "aha_cholesterol_guidelines",
+    "title": "AHA/ACC Blood Cholesterol & Lipid Profile Reference Ranges",
+    "source": "AHA/ACC Guidelines on the Management of Blood Cholesterol",
+    "category": "Lipid Panels",
+    "content": "Serum cholesterol reference standards: Total Cholesterol: Desirable is under 200 mg/dL; Borderline high is 200-239 mg/dL; High risk is 240 mg/dL and above. Low-Density Lipoprotein (LDL-C, 'bad cholesterol'): Optimal is under 100 mg/dL (under 70 mg/dL for individuals with established coronary disease or diabetes); Near optimal is 100-129 mg/dL; Borderline high is 130-159 mg/dL; High is 160-189 mg/dL; Very high is 190 mg/dL or higher. High-Density Lipoprotein (HDL-C, 'good cholesterol'): Protective against heart disease when 60 mg/dL or higher; Major risk factor when below 40 mg/dL in men or below 50 mg/dL in women. Triglycerides: Normal is under 150 mg/dL; Borderline is 150-199 mg/dL; High is 200-499 mg/dL; Very high is 500 mg/dL or above."
+  },
+  {
+    "id": "ada_glucose_diabetes_risk",
+    "title": "American Diabetes Association Glucose Thresholds & Heart Disease",
+    "source": "American Diabetes Association (ADA) Standards of Care in Diabetes",
+    "category": "Metabolic Markers",
+    "content": "Fasting blood glucose reference values: Normal fasting plasma glucose is 70 to 99 mg/dL. Impaired fasting glucose (prediabetes) is 100 to 125 mg/dL. Diabetes mellitus is diagnosed at a fasting glucose of 126 mg/dL or higher on two separate tests, or an HbA1c of 6.5% or higher. Adults with diabetes are twice to four times as likely to die from heart disease compared to adults without diabetes. Elevated blood sugar damages vascular endothelial walls, facilitates atheroma formation, and is frequently accompanied by hypertension, elevated triglycerides, and lower HDL levels."
+  },
+  {
+    "id": "who_bmi_obesity_guidelines",
+    "title": "WHO Body Mass Index (BMI) Classifications & Cardiovascular Impact",
+    "source": "World Health Organization (WHO) Technical Report Series",
+    "category": "Anthropometrics",
+    "content": "Body Mass Index (BMI) is calculated as weight in kilograms divided by the square of height in meters (kg/m²): Underweight: BMI less than 18.5. Normal healthy weight: BMI 18.5 to 24.9. Overweight: BMI 25.0 to 29.9. Class 1 Obesity: BMI 30.0 to 34.9. Class 2 Obesity: BMI 35.0 to 39.9. Class 3 (Severe) Obesity: BMI 40.0 or higher. Excess visceral adiposity increases systemic inflammation (elevated high-sensitivity C-reactive protein), raises left ventricular workload, promotes hypertension, impairs insulin sensitivity, and substantially elevates long-term risk of coronary artery disease."
+  },
+  {
+    "id": "lifestyle_smoking_alcohol",
+    "title": "Smoking, Tobacco Use, and Alcohol Consumption on Cardiovascular Health",
+    "source": "CDC Smoking & Tobacco Use and US Surgeon General Reports",
+    "category": "Lifestyle Risk",
+    "content": "Cigarette smoking and tobacco usage are leading causes of preventable cardiovascular morbidity. Nicotine increases heart rate and blood pressure, while carbon monoxide displaces oxygen in hemoglobin. Chemicals in tobacco smoke damage the arterial lining, promote platelet aggregation, and trigger acute vasospasm. Quitting smoking reduces coronary risk by 50% within one to two years of cessation. Regarding alcohol consumption: Chronic heavy drinking or binge drinking causes alcoholic cardiomyopathy, cardiac arrhythmias (including atrial fibrillation, 'holiday heart syndrome'), and secondary hypertension. Guidelines recommend limiting alcohol intake to no more than 1 drink per day for women and 2 drinks per day for men, with non-drinkers advised not to start."
+  },
+  {
+    "id": "lifestyle_diet_exercise_sleep",
+    "title": "Physical Activity, Diet, Sleep Quality, and Stress Management",
+    "source": "AHA Life's Essential 8 Guidelines",
+    "category": "Lifestyle Interventions",
+    "content": "AHA recommendations for optimal cardiovascular wellness: Physical Activity: Adults should attain at least 150 minutes of moderate-intensity aerobic exercise (e.g., brisk walking, cycling) or 75 minutes of vigorous-intensity aerobic exercise per week, accompanied by muscle-strengthening activities at least 2 days per week. Diet: Emphasize whole grains, lean proteins, nuts, legumes, fruits, vegetables, and olive oil (Mediterranean or DASH dietary pattern); strictly limit saturated fats, trans fats, sodium (<2,300 mg/day, ideally <1,500 mg/day for hypertension), and added sugars. Sleep: Healthy adults require 7 to 9 hours of uninterrupted sleep per night. Sleep apnea and chronic sleep deprivation significantly worsen nocturnal blood pressure dipping and increase arrhythmia risk. Stress: Chronic psychosocial stress elevates cortisol and sympathetic tone, compounding endothelial vulnerability."
+  },
+  {
+    "id": "emergency_warning_signs",
+    "title": "Emergency Cardiovascular Warning Signs and Urgent Care Guidance",
+    "source": "American Heart Association Emergency Cardiovascular Care (ECC)",
+    "category": "Emergency Protocol",
+    "content": "CRITICAL EMERGENCY WARNING SIGNS OF ACUTE MYOCARDIAL INFARCTION OR STROKE: Symptoms requiring IMMEDIATE emergency medical dispatch (calling 911, 112, 102, or local emergency services): 1. Chest pain, discomfort, pressure, fullness, or squeezing in the center of the chest lasting more than a few minutes or resolving and returning. 2. Pain or discomfort radiating to one or both arms, the back, neck, jaw, or epigastrium. 3. Shortness of breath with or without chest discomfort. 4. Cold sweat, unexplained nausea, or lightheadedness. 5. Sudden numbness or weakness of the face, arm, or leg (especially on one side of the body), sudden confusion, difficulty speaking or understanding speech, sudden trouble walking or loss of balance. When these symptoms occur, DO NOT delay, DO NOT attempt to self-medicate, and seek emergency room care immediately."
+  },
+  {
+    "id": "common_cardiac_tests",
+    "title": "Cardiovascular Diagnostic Tests and Laboratory Terminology",
+    "source": "National Heart, Lung, and Blood Institute (NHLBI)",
+    "category": "Diagnostic Testing",
+    "content": "Overview of common clinical diagnostic evaluations for heart health: Electrocardiogram (ECG/EKG): Records the electrical activity of the heart to detect arrhythmias, ischemia, or prior infarcts. Echocardiogram (Echo): Ultrasound imaging of cardiac chambers, valves, wall motion, and ejection fraction (normal left ventricular ejection fraction is 50-70%). Exercise Stress Test: Evaluates cardiovascular response under graded physical exertion to unmask exercise-induced ischemia. Cardiac Troponin (cTnI/cTnT): Highly sensitive blood biomarker released during myocardial injury; elevated levels indicate acute coronary syndrome. Coronary CT Angiography (CCTA) and Calcium Scoring: Assesses calcified atherosclerotic plaque burden in coronary arteries."
+  }
+]

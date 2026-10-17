@@ -1,0 +1,51 @@
+[
+  {
+    "id": "ada_diabetes_comprehensive",
+    "title": "American Diabetes Association (ADA) Diagnostic Criteria & Management",
+    "source": "ADA Standards of Medical Care in Diabetes",
+    "category": "Endocrinology & Metabolism",
+    "content": "Diabetes Diagnostic Criteria: Normal fasting blood glucose is 70-99 mg/dL. Impaired fasting glucose (prediabetes) is 100-125 mg/dL. Diabetes is diagnosed when fasting plasma glucose >= 126 mg/dL, 2-hour oral glucose tolerance test >= 200 mg/dL, or HbA1c >= 6.5%. Common symptoms include increased thirst (polydipsia), frequent urination (polyuria), unintended weight loss, fatigue, and blurred vision. Management involves lifestyle modifications (balanced low-glycemic Mediterranean/DASH diet, 150 minutes of weekly aerobic exercise, weight reduction) and medications (such as metformin, GLP-1 receptor agonists, SGLT2 inhibitors, or insulin under physician guidance). Hypoglycemia (blood sugar < 70 mg/dL) requires immediate ingestion of 15 grams of fast-acting carbohydrates (rule of 15)."
+  },
+  {
+    "id": "cdc_fever_cough_infections",
+    "title": "CDC Clinical Guidance on Acute Respiratory Infections, Fever, and Cough",
+    "source": "Centers for Disease Control and Prevention (CDC) / WHO Clinical Guidance",
+    "category": "Infectious Diseases & Respiratory",
+    "content": "Acute respiratory infections, including the common cold, influenza, acute bronchitis, and COVID-19, typically present with symptoms such as fever, cough, sore throat, nasal congestion, malaise, and headache. Fever is medically defined as a core body temperature >= 100.4 F (38.0 C). Most uncomplicated viral infections are self-limiting and resolve within 7-10 days with supportive care: rest, adequate oral hydration (water, broths, electrolyte solutions), honey for cough suppression in individuals over 1 year of age, and over-the-counter antipyretics/analgesics (acetaminophen or ibuprofen within safe dosing limits). Red flag symptoms requiring urgent medical evaluation include: shortness of breath, chest pain, persistent high fever (>103 F or lasting >3-5 days), confusion, inability to keep fluids down, or blood in sputum."
+  },
+  {
+    "id": "ihs_headache_migraine",
+    "title": "Clinical Diagnosis and Management of Headaches, Migraines, and Neurological Red Flags",
+    "source": "International Headache Society / American Headache Society (AHS) Guidelines",
+    "category": "Neurology & Headaches",
+    "content": "Clinical evaluation of headaches, migraines, and head pain: Primary headaches include Tension-Type Headaches (bilateral, dull non-pulsatile band-like pressure, mild to moderate, without nausea) and Migraines (unilateral one-sided head pain, moderate to severe pulsating or throbbing headache aggravated by routine physical movement, often accompanied by sensitivity to light [photophobia], sound sensitivity [phonophobia], nausea, or visual aura). Supportive home relief includes resting in a cool dark quiet room, adequate oral hydration, cold compresses to the head, and over-the-counter analgesics (acetaminophen, ibuprofen, naproxen within safe daily dosing) or physician-prescribed triptans. Neurological warning signs requiring immediate emergency medical evaluation include: Sudden thunderclap headache peaking in seconds, headache with high fever and stiff neck, focal neurological weakness or numbness on one side of the face or body, difficulty speaking, confusion, or headache following head trauma."
+  },
+  {
+    "id": "gastrointestinal_gerd_digestive",
+    "title": "ACG Clinical Guidelines for Gastrointestinal Health, GERD, and Abdominal Symptoms",
+    "source": "American College of Gastroenterology (ACG)",
+    "category": "Gastroenterology",
+    "content": "Gastroesophageal Reflux Disease (GERD) presents with heartburn (retrosternal burning sensation typically after meals) and acid regurgitation. Management includes dietary modifications (avoiding late-night meals within 3 hours of bedtime, limiting caffeine, chocolate, spicy foods, acidic citrus, and high-fat items), elevating the head of the bed by 6 inches, weight reduction, and acid suppression (H2 receptor blockers or proton pump inhibitors). Acute gastroenteritis presents with nausea, vomiting, watery diarrhea, and abdominal cramping; primary therapy focuses on oral rehydration therapy with balanced electrolyte solutions. Red flag symptoms requiring prompt clinical investigation include: difficulty swallowing (dysphagia), painful swallowing, unintentional weight loss, persistent vomiting, black tarry stools (melena), or vomit resembling coffee grounds."
+  },
+  {
+    "id": "kdigo_renal_hepatic_health",
+    "title": "KDIGO Guidelines on Renal Health, Kidney Markers, and Liver Function",
+    "source": "Kidney Disease: Improving Global Outcomes (KDIGO) / AASLD Guidelines",
+    "category": "Nephrology & Hepatology",
+    "content": "Kidney health is clinically evaluated via Serum Creatinine, Blood Urea Nitrogen (BUN), Estimated Glomerular Filtration Rate (eGFR), and Urine Albumin-to-Creatinine Ratio (uACR). A normal eGFR is > 90 mL/min/1.73m2. Chronic kidney disease (CKD) is characterized by persistent eGFR < 60 mL/min or persistent proteinuria for >= 3 months. Preventive kidney health mandates strict blood pressure control (<120-130 mmHg systolic), optimal glycemic control in diabetes, adequate hydration, and avoidance of nephrotoxic agents (such as chronic high-dose NSAID abuse or unmonitored contrast agents). Liver function tests (LFTs) evaluate hepatocyte integrity via alanine aminotransferase (ALT, normal ~7-55 U/L) and aspartate aminotransferase (AST, normal ~8-48 U/L), along with alkaline phosphatase and bilirubin for biliary excretion. Chronic elevations warrant screening for metabolic dysfunction-associated steatotic liver disease (MASLD), viral hepatitis, or alcohol-related liver injury."
+  },
+  {
+    "id": "who_preventive_nutrition_sleep",
+    "title": "WHO Guidelines on Preventive Healthcare, Nutrition, Physical Exercise, and Sleep Hygiene",
+    "source": "World Health Organization (WHO) Preventive Health Standards",
+    "category": "Preventive Medicine & Wellness",
+    "content": "Foundational pillars of preventive medicine include: Nutrition: A diverse, plant-rich diet rich in dietary fiber (>= 25-30 g/day), unprocessed fruits, vegetables, legumes, whole grains, and lean proteins, with limited sodium (< 2,000 mg/day) and minimal ultra-processed foods. Physical Exercise: At least 150-300 minutes of moderate-intensity aerobic exercise or 75-150 minutes of vigorous-intensity exercise per week, combined with multi-joint muscle-strengthening exercises at least 2 days per week. Sleep Hygiene: Adults require 7-9 hours of restorative sleep per night; optimal habits include maintaining a consistent sleep schedule, sleeping in a cool dark quiet room, avoiding screens/blue light 1 hour prior to sleep, and avoiding evening caffeine and alcohol. Routine preventive screening includes periodic blood pressure screening, fasting lipid panels, fasting glucose/HbA1c, and age-appropriate cancer screenings."
+  },
+  {
+    "id": "fda_medication_safety_principles",
+    "title": "General Medication Safety Principles, Analgesic Dosing, and Side Effects",
+    "source": "US Food and Drug Administration (FDA) / Clinical Pharmacology Consensus",
+    "category": "Pharmacology & Medication Safety",
+    "content": "Core principles of safe medication usage: Acetaminophen (Paracetamol): Effective antipyretic and analgesic with minimal gastric irritation; maximum safe daily dose in adults is 3,000 to 4,000 mg across all sources to prevent acute hepatotoxicity (liver injury); caution in chronic liver disease or alcohol use. Non-Steroidal Anti-Inflammatory Drugs (NSAIDs like ibuprofen, naproxen): Potent anti-inflammatory analgesics; carry risks of gastrointestinal ulceration, bleeding, renal vasoconstriction, and blood pressure elevation; always take with food; avoid in active peptic ulcer disease, severe heart failure, or advanced kidney disease. Antibiotic Stewardship: Antibiotics only treat bacterial infections (e.g., strep throat, bacterial pneumonia, urinary tract infections) and are completely ineffective against viral illnesses (colds, influenza, viral bronchitis, viral pharyngitis). Unnecessary antibiotic use causes side effects (diarrhea, allergic reactions) and promotes dangerous antimicrobial resistance."
+  }
+]

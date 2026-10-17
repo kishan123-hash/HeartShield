@@ -1,0 +1,23 @@
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node.js
+node_modules/
+dist/
+.next/
+
+# IDE and OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+Back-end/.zip

@@ -1,0 +1,6 @@
+﻿🚀 Starting HeartShield API Test Suite
+
+======================================================================
+📋 Testing System Health Check...
+❌ Server not responding. Make sure backend is running.
+   Run: python -m uvicorn app.main:app --reload

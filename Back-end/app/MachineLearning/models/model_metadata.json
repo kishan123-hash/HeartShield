@@ -1,0 +1,55 @@
+{
+  "model_name": "HeartShield Hybrid Hard-Voting Ensemble",
+  "version": "1.0.0",
+  "estimators": [
+    "LogisticRegression",
+    "RandomForestClassifier",
+    "XGBClassifier"
+  ],
+  "voting_strategy": "hard",
+  "num_features": 37,
+  "train_accuracy": 0.7746,
+  "test_accuracy": 0.7604,
+  "base_model_accuracies": {
+    "logistic_regression": 0.7637,
+    "random_forest": 0.7521,
+    "xgboost": 0.7609
+  },
+  "classification_report": {
+    "0": {
+      "precision": 0.7704257767548907,
+      "recall": 0.7403243641725028,
+      "f1-score": 0.7550751879699248,
+      "support": 5426.0
+    },
+    "1": {
+      "precision": 0.7512358757062146,
+      "recall": 0.7804475421863536,
+      "f1-score": 0.7655631522130263,
+      "support": 5452.0
+    },
+    "accuracy": 0.7604339032910461,
+    "macro avg": {
+      "precision": 0.7608308262305526,
+      "recall": 0.7603859531794281,
+      "f1-score": 0.7603191700914755,
+      "support": 10878.0
+    },
+    "weighted avg": {
+      "precision": 0.7608078929051589,
+      "recall": 0.7604339032910461,
+      "f1-score": 0.7603317039704203,
+      "support": 10878.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      4017,
+      1409
+    ],
+    [
+      1197,
+      4255
+    ]
+  ]
+}
