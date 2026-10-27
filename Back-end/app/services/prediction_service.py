@@ -44,6 +44,9 @@ class PredictionService:
 
     def _load_models(self):
         try:
+            import sklearn
+            logger.info(f"Loading HeartShield ML models under scikit-learn {sklearn.__version__}")
+
             ensemble_path = MODELS_DIR / "heartshield_hard_voting_ensemble.joblib"
             lr_path = MODELS_DIR / "logistic_regression.joblib"
             rf_path = MODELS_DIR / "random_forest.joblib"
@@ -285,55 +288,76 @@ class PredictionService:
         df_input = pd.DataFrame([feature_dict])[self.feature_columns]
         return df_input
 
+    @staticmethod
+    def _extract_positive_class_probability(model: Any, df_input: pd.DataFrame) -> float:
+        """
+        Extracts the probability of the positive class (class 1) from an estimator,
+        verifying model.classes_ rather than assuming fixed index [1].
+        Validates that probabilities are finite, in [0, 1], and sum to ~1.0.
+        """
+        raw_probs = model.predict_proba(df_input)
+        if len(raw_probs) == 0:
+            raise ValueError(f"Estimator {type(model).__name__} returned empty probabilities.")
+
+        probs = np.asarray(raw_probs[0], dtype=float)
+        if not np.all(np.isfinite(probs)):
+            raise ValueError(f"Estimator {type(model).__name__} returned non-finite probabilities.")
+        if np.any(probs < 0.0) or np.any(probs > 1.0):
+            raise ValueError(f"Estimator {type(model).__name__} probabilities out of [0, 1] range: {probs}")
+        if not np.isclose(np.sum(probs), 1.0, atol=1e-2):
+            raise ValueError(f"Estimator {type(model).__name__} probabilities do not sum to 1: {probs}")
+
+        classes = getattr(model, "classes_", None)
+        if classes is not None:
+            classes_list = list(classes)
+            if 1 in classes_list:
+                pos_idx = classes_list.index(1)
+            elif "1" in classes_list:
+                pos_idx = classes_list.index("1")
+            elif True in classes_list:
+                pos_idx = classes_list.index(True)
+            else:
+                pos_idx = len(classes_list) - 1
+        else:
+            pos_idx = 1 if len(probs) > 1 else 0
+
+        return float(probs[pos_idx])
+
     def predict(
         self,
         assessment_data: Any,
         patient_data: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
-        Executes true majority hard voting across Logistic Regression, Random Forest, and XGBoost.
+        Executes true majority hard voting across Logistic Regression, Random Forest, and XGBoost
+        using the trained HeartShield ML models. Eliminates heuristic score fallbacks.
         """
-        try:
-            if not self.is_ready():
-                self._load_models()
+        if not self.is_ready():
+            self._load_models()
 
+        if not self.is_ready() or not self.lr_model or not self.rf_model or not self.xgb_model:
+            raise RuntimeError("HeartShield ML models could not be loaded or are not ready for inference.")
+
+        try:
             df_input = self.build_feature_dataframe(assessment_data, patient_data)
 
-            if self.is_ready() and self.lr_model and self.rf_model and self.xgb_model:
-                # 1. Base classifier predictions (0 or 1)
-                lr_pred = int(self.lr_model.predict(df_input)[0])
-                rf_pred = int(self.rf_model.predict(df_input)[0])
-                xgb_pred = int(self.xgb_model.predict(df_input)[0])
+            # 1. Base classifier predictions (0 or 1)
+            lr_pred = int(self.lr_model.predict(df_input)[0])
+            rf_pred = int(self.rf_model.predict(df_input)[0])
+            xgb_pred = int(self.xgb_model.predict(df_input)[0])
 
-                # 2. Calibrated probabilities for transparency (from individual models)
-                lr_prob = float(self.lr_model.predict_proba(df_input)[0][1])
-                rf_prob = float(self.rf_model.predict_proba(df_input)[0][1])
-                xgb_prob = float(self.xgb_model.predict_proba(df_input)[0][1])
+            # 2. Calibrated probabilities for transparency extracted using verified classes_
+            lr_prob = self._extract_positive_class_probability(self.lr_model, df_input)
+            rf_prob = self._extract_positive_class_probability(self.rf_model, df_input)
+            xgb_prob = self._extract_positive_class_probability(self.xgb_model, df_input)
 
-                votes = [lr_pred, rf_pred, xgb_pred]
-                positive_votes = sum(votes)
-                ensemble_pred = 1 if positive_votes >= 2 else 0
-                avg_prob = (lr_prob + rf_prob + xgb_prob) / 3.0
-            else:
-                raise RuntimeError("Models not loaded, falling back to clinical rules")
-        except Exception as e:
-            logger.warning(f"Using clinical heuristic fallback for prediction: {e}")
-            sys_bp = float(getattr(assessment_data, "systolic_bp", None) or 120.0)
-            chol = float(getattr(assessment_data, "total_cholesterol", None) or 180.0)
-            glucose = float(getattr(assessment_data, "blood_glucose", None) or 95.0)
-            bmi = float(getattr(assessment_data, "bmi", None) or 24.5)
-            
-            score = 0.08
-            if sys_bp >= 140: score += 0.22
-            if chol >= 240: score += 0.18
-            if glucose >= 126: score += 0.18
-            if bmi >= 30: score += 0.12
-            score = min(0.92, max(0.06, score))
-            
-            lr_prob = rf_prob = xgb_prob = avg_prob = score
-            lr_pred = rf_pred = xgb_pred = 1 if score >= 0.5 else 0
-            positive_votes = sum([lr_pred, rf_pred, xgb_pred])
+            votes = [lr_pred, rf_pred, xgb_pred]
+            positive_votes = sum(votes)
             ensemble_pred = 1 if positive_votes >= 2 else 0
+            avg_prob = (lr_prob + rf_prob + xgb_prob) / 3.0
+        except Exception as e:
+            logger.error(f"Error during ML model inference: {e}", exc_info=True)
+            raise RuntimeError(f"HeartShield ML prediction execution failed: {str(e)}") from e
 
         # 4. Clinical risk categorization
         if ensemble_pred == 1:

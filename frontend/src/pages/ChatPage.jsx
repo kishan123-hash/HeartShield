@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
-import api from '../api/client';
+import api, { getMediaUrl as resolveMediaUrl } from '../api/client';
 
 export default function ChatPage() {
   const { user, role } = useAuth();
@@ -302,8 +302,7 @@ export default function ChatPage() {
   };
 
   const getMediaUrl = (downloadUrl) => {
-    const base = 'http://localhost:8000';
-    return `${base}${downloadUrl}?token=${token}`;
+    return resolveMediaUrl(downloadUrl, token);
   };
 
   const filteredConversations = conversations.filter((c) =>

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 class AssessmentCreate(BaseModel):
 
@@ -85,6 +85,13 @@ class AssessmentCreate(BaseModel):
     # Optional demographic overrides
     age: int | None = None
     gender: str | None = None
+
+    @model_validator(mode="after")
+    def validate_clinical_consistency(self):
+        if self.systolic_bp is not None and self.diastolic_bp is not None:
+            if self.systolic_bp <= self.diastolic_bp:
+                raise ValueError("Systolic blood pressure must be strictly greater than diastolic blood pressure.")
+        return self
 
 
 class ModelResults(BaseModel):

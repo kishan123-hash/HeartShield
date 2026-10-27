@@ -146,25 +146,17 @@ def create_assessment(
         setattr(assessment, "prediction_id", prediction.id)
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to generate prediction for assessment {assessment.id}: {e}", exc_info=True)
+        # Clean up the assessment record since prediction generation failed
         try:
-            fallback_prediction = ModelPrediction(
-                assessment_id=assessment.id,
-                logistic_probability=0.20,
-                random_forest_probability=0.20,
-                xgboost_probability=0.20,
-                ensemble_probability=0.20,
-                risk_level="LOW",
-                prediction_label="Low Risk of Heart Disease",
-                model_version="1.0.0-fallback"
-            )
-            db.add(fallback_prediction)
+            db.delete(assessment)
             db.commit()
-            db.refresh(fallback_prediction)
-            setattr(assessment, "prediction_id", fallback_prediction.id)
-        except Exception as inner_e:
+        except Exception:
             db.rollback()
-            logger.error(f"Fallback prediction failed for assessment {assessment.id}: {inner_e}", exc_info=True)
+        logger.error(f"Failed to generate prediction for assessment {assessment.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate risk assessment prediction using the trained ML model: {str(e)}"
+        )
 
     # ======================================
     # RETURN SAVED ASSESSMENT

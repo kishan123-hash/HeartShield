@@ -117,15 +117,24 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 
+cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://heartshield-frontend.onrender.com",
+]
+try:
+    from app.core.config import settings as app_settings
+    if hasattr(app_settings, "FRONTEND_ORIGIN") and app_settings.FRONTEND_ORIGIN:
+        if app_settings.FRONTEND_ORIGIN not in cors_origins:
+            cors_origins.append(app_settings.FRONTEND_ORIGIN)
+except Exception:
+    pass
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "https://heartshield-frontend.onrender.com",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

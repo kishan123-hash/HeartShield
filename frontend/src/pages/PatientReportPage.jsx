@@ -325,29 +325,31 @@ export default function PatientReportPage() {
           </ul>
         </div>
 
-        {/* Doctor Review & Sign-off Area */}
-        <div className="border-t border-warm-border pt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
-          <div className="space-y-1">
+        {/* Clinical Verification (if reviewed by physician) */}
+        {(report?.is_approved || report?.doctor_notes) && (
+          <div className="border-t border-warm-border pt-4 pb-2 mb-4 space-y-1">
             <span className="text-[10px] font-bold text-warm-muted uppercase tracking-wider">Clinical Verification</span>
             <div className="flex items-center space-x-2">
               <FileCheck className="w-4 h-4 text-emerald-600" />
               <span className="text-xs font-bold text-gray-900">
-                {report?.is_approved ? 'Verified by Attending Physician' : 'Automated Diagnostic Output'}
+                {report?.is_approved ? 'Verified by Attending Physician' : 'Under Physician Review'}
               </span>
             </div>
             {report?.doctor_notes && (
               <p className="text-[11px] text-gray-600 italic mt-1">"{report.doctor_notes}"</p>
             )}
-            <p className="text-[10px] text-warm-muted mt-2">
-              This automated assessment provides evidence-based risk stratification and does not replace in-person medical evaluation.
-            </p>
           </div>
+        )}
 
-          <div className="text-right space-y-3 sm:space-y-6">
-            <div className="inline-block border-b-2 border-gray-400 w-48 text-center pb-1">
-              <span className="font-mono text-xs text-gray-400">HeartShield AI Ensemble</span>
-            </div>
-            <p className="text-[10px] text-warm-muted">Authorized Digital Sign-off</p>
+        {/* Medical Disclaimer */}
+        <div className="border-t border-warm-border pt-6">
+          <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/60 border border-amber-200/80 text-gray-800">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-2">
+              Medical Disclaimer
+            </h4>
+            <p className="text-xs leading-relaxed text-gray-700">
+              This report is generated using an artificial intelligence-based risk assessment system and is intended for informational and decision-support purposes only. It is not a medical diagnosis and must not replace professional medical advice, clinical evaluation, or treatment. AI-generated assessments may contain errors or inaccuracies and may not account for every aspect of an individual's health. Please consult a qualified healthcare professional to interpret these results and determine the appropriate next steps. If you experience severe or urgent symptoms, seek immediate medical attention.
+            </p>
           </div>
         </div>
       </div>

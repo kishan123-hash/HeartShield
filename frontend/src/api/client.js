@@ -1,7 +1,44 @@
 import axios from 'axios';
 
+export const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    const raw = import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '');
+    return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocalhost) {
+      return `${window.location.origin}/api/v1`;
+    }
+  }
+  return 'http://localhost:8000/api/v1';
+};
+
+export const getMediaBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    const raw = import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '');
+    return raw.replace(/\/api\/v1\/?$/, '').replace(/\/api\/?$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocalhost) {
+      return window.location.origin;
+    }
+  }
+  return 'http://localhost:8000';
+};
+
+export const getMediaUrl = (downloadUrl, token) => {
+  if (!downloadUrl) return '';
+  const base = getMediaBaseUrl();
+  const cleanPath = downloadUrl.startsWith('/') ? downloadUrl : `/${downloadUrl}`;
+  const authToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null);
+  const tokenParam = authToken ? (cleanPath.includes('?') ? `&token=${encodeURIComponent(authToken)}` : `?token=${encodeURIComponent(authToken)}`) : '';
+  return `${base}${cleanPath}${tokenParam}`;
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/api/v1` : 'http://localhost:8000/api/v1',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },

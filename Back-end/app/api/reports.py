@@ -252,6 +252,17 @@ of impact (positive or negative) on the cardiovascular risk assessment.\n\n"""
    • Immediate evaluation if new symptoms develop
 """
 
+    # Medical Disclaimer
+    medical_disclaimer = (
+        "This report is generated using an artificial intelligence-based risk assessment system and is "
+        "intended for informational and decision-support purposes only. It is not a medical diagnosis "
+        "and must not replace professional medical advice, clinical evaluation, or treatment. "
+        "AI-generated assessments may contain errors or inaccuracies and may not account for every aspect "
+        "of an individual's health. Please consult a qualified healthcare professional to interpret these "
+        "results and determine the appropriate next steps. If you experience severe or urgent symptoms, "
+        "seek immediate medical attention."
+    )
+
     return {
         "executive_summary": executive_summary,
         "clinical_findings": clinical_findings,
@@ -260,6 +271,7 @@ of impact (positive or negative) on the cardiovascular risk assessment.\n\n"""
         "recommendations": recommendations,
         "doctor_notes": doctor_notes or "",
         "risk_classification": risk_classification,
+        "medical_disclaimer": medical_disclaimer,
     }
 
 
