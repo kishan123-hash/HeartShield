@@ -86,6 +86,8 @@ export default function RiskAssessmentPage() {
     try {
       // 1. Post assessment to FastAPI
       const payload = {
+        age: Number(formData.age),
+        gender: formData.gender,
         systolic_bp: Number(formData.systolic_bp),
         diastolic_bp: Number(formData.diastolic_bp),
         heart_rate: Number(formData.heart_rate),
@@ -110,14 +112,21 @@ export default function RiskAssessmentPage() {
       };
 
       const res = await api.post('/assessments/', payload);
-      const assessmentId = res.data.id;
+      const assessmentId = res.data?.id;
 
       // 2. Fetch the generated prediction
-      // The backend auto-generates prediction upon assessment save
-      const predRes = await api.get('/predictions/latest');
-      const predictionId = predRes.data?.id || assessmentId;
+      // If the backend returned prediction_id directly, use it immediately
+      let predictionId = res.data?.prediction_id;
+      if (!predictionId) {
+        try {
+          const predRes = await api.get('/predictions/latest');
+          predictionId = predRes.data?.id;
+        } catch (predErr) {
+          console.warn('Could not fetch latest prediction directly, using assessment ID fallback', predErr);
+        }
+      }
 
-      navigate(`/patient/prediction-result/${predictionId}`);
+      navigate(`/patient/prediction-result/${predictionId || assessmentId}`);
     }catch (err) {
   console.error('Assessment submission error:', err);
   console.error('HTTP status:', err.response?.status);
@@ -138,10 +147,10 @@ export default function RiskAssessmentPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-4xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-4xl w-full mx-auto space-y-8 min-w-0">
         {/* Header (Screen 12) */}
         <div className="text-center max-w-xl mx-auto space-y-2">
           <span className="text-xs font-bold uppercase tracking-wider text-brand-800 bg-brand-50 px-3 py-1 rounded-full border border-brand-200">

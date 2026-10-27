@@ -478,12 +478,34 @@ def get_report(
 
     # Check authorization
     if current_user.role == "patient":
-        if report.patient_id != db.query(Patient).filter(
+        patient = db.query(Patient).filter(
             Patient.user_id == current_user.id
-        ).first().id:
+        ).first()
+        if not patient or report.patient_id != patient.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have access to this report"
+            )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        patient = db.query(Patient).filter(Patient.id == report.patient_id).first()
+        is_assigned = patient and patient.assigned_doctor_id == doctor.id
+        is_rel = db.query(DoctorPatientRelationship).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.patient_id == report.patient_id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).first() is not None
+        if not is_assigned and not is_rel:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access forbidden: Patient is not under your supervision"
             )
 
     return report
@@ -612,6 +634,27 @@ def download_report(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have access to this report"
+            )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        patient = db.query(Patient).filter(Patient.id == report.patient_id).first()
+        is_assigned = patient and patient.assigned_doctor_id == doctor.id
+        is_rel = db.query(DoctorPatientRelationship).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.patient_id == report.patient_id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).first() is not None
+        if not is_assigned and not is_rel:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access forbidden: Patient is not under your supervision"
             )
 
     if not report.file_path or not Path(report.file_path).exists():

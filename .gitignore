@@ -21,3 +21,30 @@ dist/
 Thumbs.db
 
 Back-end/.zip
+
+
+# Python testing and cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+
+# Generated reports and test outputs
+Back-end/reports_storage/
+Back-end/test_results.txt
+Back-end/test_results*.txt
+Back-end/comprehensive_test_results.txt
+
+# Frontend dependencies and build
+frontend/node_modules/
+frontend/build/
+
+# Local database files
+*.sqlite3
+*.db
+
+# Environment files
+Back-end/.env
+frontend/.env

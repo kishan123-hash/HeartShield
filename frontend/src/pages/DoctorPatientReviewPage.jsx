@@ -78,7 +78,7 @@ export default function DoctorPatientReviewPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex bg-warm-bg">
+      <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
         <Sidebar />
         <main className="flex-1 flex flex-col items-center justify-center p-8">
           <div className="w-10 h-10 border-4 border-brand-800 border-t-transparent rounded-full animate-spin mb-3" />
@@ -89,17 +89,19 @@ export default function DoctorPatientReviewPage() {
   }
 
   const patient = patientData?.patient || patientData || {};
-  const assessment = patientData?.latest_assessment || {};
-  const prediction = patientData?.latest_prediction || {};
-  const prob = Number(prediction.ensemble_probability || 0.35);
+  const assessment = patientData?.latest_assessment || (patientData?.assessments && patientData.assessments[0]) || null;
+  const prediction = patientData?.latest_prediction || null;
+  const hasAssessment = Boolean(assessment && (assessment.id || assessment.systolic_bp));
+
+  const prob = prediction ? Number(prediction.ensemble_probability || 0.35) : 0;
   const probPercent = Math.round(prob * 100);
-  const riskLevel = prediction.risk_level || (prob >= 0.7 ? 'High' : prob >= 0.4 ? 'Moderate' : 'Low');
+  const riskLevel = prediction?.risk_level || (prob >= 0.7 ? 'High' : prob >= 0.4 ? 'Moderate' : 'Low');
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-5xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-5xl w-full mx-auto space-y-8 min-w-0">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
@@ -161,58 +163,70 @@ export default function DoctorPatientReviewPage() {
         </div>
 
         {/* Clinical Prediction & Vitals Section */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-          {/* Risk Gauge */}
-          <div className="md:col-span-5 bg-white p-6 rounded-3xl border border-warm-border shadow-xs flex flex-col items-center justify-center">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-warm-muted mb-2">
-              AI Risk Evaluation
-            </h3>
-            <RiskGauge percentage={probPercent} riskLevel={riskLevel} />
-            <div className="mt-3 text-center space-y-1">
-              <span className="text-xs font-bold text-gray-900">{prediction.prediction_label || `${riskLevel} Risk`}</span>
-              <p className="text-[11px] text-warm-muted">Hard-Voting Ensemble with LR + RF + XGBoost</p>
+        {!hasAssessment ? (
+          <div className="bg-white p-8 sm:p-12 rounded-3xl border border-warm-border shadow-xs text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center mx-auto border border-amber-200">
+              <Activity className="w-6 h-6" />
             </div>
+            <h3 className="text-base font-bold text-gray-900">No assessment found</h3>
+            <p className="text-xs text-warm-muted max-w-md mx-auto">
+              This patient has not yet completed a cardiovascular risk assessment. Once they record their vitals and lifestyle metrics, their latest assessment will appear here.
+            </p>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+            {/* Risk Gauge */}
+            <div className="md:col-span-5 bg-white p-6 rounded-3xl border border-warm-border shadow-xs flex flex-col items-center justify-center">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-warm-muted mb-2">
+                AI Risk Evaluation
+              </h3>
+              <RiskGauge percentage={probPercent} riskLevel={riskLevel} />
+              <div className="mt-3 text-center space-y-1">
+                <span className="text-xs font-bold text-gray-900">{prediction?.prediction_label || `${riskLevel} Risk`}</span>
+                <p className="text-[11px] text-warm-muted">Hard-Voting Ensemble with LR + RF + XGBoost</p>
+              </div>
+            </div>
 
-          {/* Vitals Summary */}
-          <div className="md:col-span-7 bg-white p-6 rounded-3xl border border-warm-border shadow-xs space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800">
-              Latest Biometric Markers
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">Blood Pressure</span>
-                <span className="font-bold text-gray-900">
-                  {assessment.systolic_bp || 120} / {assessment.diastolic_bp || 80} mmHg
-                </span>
-              </div>
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">Heart Rate</span>
-                <span className="font-bold text-gray-900">{assessment.heart_rate || 72} bpm</span>
-              </div>
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">BMI</span>
-                <span className="font-bold text-gray-900">{assessment.bmi || 24.5}</span>
-              </div>
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">Total Cholesterol</span>
-                <span className="font-bold text-gray-900">{assessment.total_cholesterol || 190} mg/dL</span>
-              </div>
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">HDL / LDL</span>
-                <span className="font-bold text-gray-900">
-                  {assessment.hdl || 50} / {assessment.ldl || 110} mg/dL
-                </span>
-              </div>
-              <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
-                <span className="text-[10px] text-warm-muted uppercase block">Smoking / Alcohol</span>
-                <span className="font-bold text-gray-900">
-                  {assessment.smoking || 'Never'} / {assessment.alcohol || 'Never'}
-                </span>
+            {/* Vitals Summary */}
+            <div className="md:col-span-7 bg-white p-6 rounded-3xl border border-warm-border shadow-xs space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800">
+                Latest Biometric Markers
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">Blood Pressure</span>
+                  <span className="font-bold text-gray-900">
+                    {assessment.systolic_bp || 120} / {assessment.diastolic_bp || 80} mmHg
+                  </span>
+                </div>
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">Heart Rate</span>
+                  <span className="font-bold text-gray-900">{assessment.heart_rate || 72} bpm</span>
+                </div>
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">BMI</span>
+                  <span className="font-bold text-gray-900">{assessment.bmi || 24.5}</span>
+                </div>
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">Total Cholesterol</span>
+                  <span className="font-bold text-gray-900">{assessment.total_cholesterol || 190} mg/dL</span>
+                </div>
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">HDL / LDL</span>
+                  <span className="font-bold text-gray-900">
+                    {assessment.hdl || 50} / {assessment.ldl || 110} mg/dL
+                  </span>
+                </div>
+                <div className="p-3 bg-warm-bg rounded-xl border border-warm-border">
+                  <span className="text-[10px] text-warm-muted uppercase block">Smoking / Alcohol</span>
+                  <span className="font-bold text-gray-900">
+                    {assessment.smoking || 'Never'} / {assessment.alcohol || 'Never'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Doctor Verification & Clinical Sign-off */}
         <div className="bg-white p-6 sm:p-8 rounded-3xl border border-warm-border shadow-xs space-y-4">

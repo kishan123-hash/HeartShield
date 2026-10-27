@@ -34,6 +34,11 @@ class PatientRegisterRequest(BaseModel):
 
     gender: str | None = None
 
+    channel: str = Field(
+        default="email",
+        description="Delivery channel: email"
+    )
+
 
 # ==========================================
 # DOCTOR REGISTRATION
@@ -114,6 +119,7 @@ class LoginResponse(BaseModel):
 
     user: UserResponse
 
+
 # ==========================================
 # GENERAL REGISTRATION
 # ==========================================
@@ -141,6 +147,10 @@ class RegisterRequest(BaseModel):
         default="patient"
     )
 
+    channel: str = Field(
+        default="email"
+    )
+
 
 # ==========================================
 # LOGOUT
@@ -157,11 +167,17 @@ class LogoutResponse(BaseModel):
 
 class SendOTPRequest(BaseModel):
 
-    email: EmailStr
+    email: str
 
     purpose: str = Field(
         default="verification"
     )
+
+    channel: str = Field(
+        default="email"
+    )
+
+    phone: str | None = None
 
 
 class SendOTPResponse(BaseModel):
@@ -175,7 +191,7 @@ class SendOTPResponse(BaseModel):
 
 class VerifyOTPRequest(BaseModel):
 
-    email: EmailStr
+    email: str
 
     otp: str = Field(
         min_length=6,
@@ -186,6 +202,8 @@ class VerifyOTPRequest(BaseModel):
         default="verification"
     )
 
+    channel: str | None = None
+
 
 class VerifyOTPResponse(BaseModel):
 
@@ -193,14 +211,23 @@ class VerifyOTPResponse(BaseModel):
 
     verified: bool
 
+    reset_token: str | None = None
+
 
 # ==========================================
-# FORGOT PASSWORD
+# PATIENT FORGOT PASSWORD
 # ==========================================
 
 class ForgotPasswordRequest(BaseModel):
 
-    email: EmailStr
+    identifier: str | None = None
+
+    email: str | None = None
+
+    channel: str = Field(
+        default="email",
+        description="Channel: email"
+    )
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -214,8 +241,12 @@ class ForgotPasswordResponse(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
 
+    identifier: str | None = None
+
+    email: str | None = None
+
     token: str = Field(
-        min_length=1
+        min_length=6
     )
 
     new_password: str = Field(
@@ -227,6 +258,48 @@ class ResetPasswordRequest(BaseModel):
 class ResetPasswordResponse(BaseModel):
 
     message: str
+
+
+# ==========================================
+# DOCTOR PASSWORD RESET (ADMIN-APPROVAL FLOW)
+# ==========================================
+
+class DoctorPasswordResetSubmitRequest(BaseModel):
+
+    email: EmailStr
+
+
+class DoctorPasswordResetStatusResponse(BaseModel):
+
+    status: str
+
+    message: str
+
+    request_id: int | None = None
+
+
+class DoctorPasswordResetSendOTPRequest(BaseModel):
+
+    email: EmailStr
+
+    channel: str = Field(
+        default="email"
+    )
+
+
+class DoctorPasswordResetCompleteRequest(BaseModel):
+
+    email: EmailStr
+
+    otp: str = Field(
+        min_length=6,
+        max_length=6
+    )
+
+    new_password: str = Field(
+        min_length=6,
+        max_length=128
+    )
 
 
 # ==========================================

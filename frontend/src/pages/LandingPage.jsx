@@ -80,7 +80,7 @@ export default function LandingPage() {
 
               {/* Right Column 3D Visual */}
               <div className="lg:col-span-5 flex justify-center">
-                <div className="relative w-72 h-72 sm:w-88 sm:h-88 lg:w-96 lg:h-96">
+                <div className="relative w-64 h-64 sm:w-80 sm:h-80 lg:w-96 lg:h-96 max-w-full">
                   {/* Glowing decorative rings */}
                   <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-rose-200/50 to-brand-100/40 blur-2xl transform scale-110"></div>
                   

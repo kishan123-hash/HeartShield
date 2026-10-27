@@ -106,7 +106,7 @@ export default function PatientReportPage() {
   return (
     <div className="min-h-screen bg-warm-bg py-8 px-4 sm:px-6">
       {/* Top Action Bar (Hidden when printing) */}
-      <div className="max-w-4xl mx-auto mb-6 flex items-center justify-between print:hidden">
+      <div className="max-w-4xl mx-auto mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <button
           onClick={() => navigate(-1)}
           className="inline-flex items-center space-x-2 text-xs font-bold text-gray-700 bg-white px-4 py-2 rounded-full border border-warm-border hover:bg-rose-50 transition-all shadow-xs"
@@ -115,7 +115,7 @@ export default function PatientReportPage() {
           <span>Back</span>
         </button>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Link
             to="/patient/chat"
             className="inline-flex items-center space-x-2 text-xs font-bold text-brand-800 bg-brand-50 px-4 py-2 rounded-full border border-brand-200 hover:bg-brand-100 transition-all"

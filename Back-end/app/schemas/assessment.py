@@ -81,6 +81,12 @@ class AssessmentCreate(BaseModel):
     stress_level: str
 
     sedentary_time: str
+
+    # Optional demographic overrides
+    age: int | None = None
+    gender: str | None = None
+
+
 class ModelResults(BaseModel):
 
     logistic_regression: float
@@ -108,6 +114,8 @@ class AssessmentResponse(BaseModel):
     prediction: PredictionResult
 
     model_results: ModelResults
+
+
 # ==========================================
 # STORED ASSESSMENT RESPONSE
 # ==========================================
@@ -147,3 +155,4 @@ class AssessmentStoredResponse(BaseModel):
 
     created_at: datetime | None
     updated_at: datetime | None
+    prediction_id: int | None = None

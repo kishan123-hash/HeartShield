@@ -14,3 +14,10 @@ from app.models.user_settings import UserSettings
 from app.models.doctor_note import DoctorNote
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.medical_report import PatientMedicalReport
+from app.models.doctor_patient_relationship import DoctorPatientRelationship
+from app.models.consultation_chat import (
+    DoctorPatientConversation,
+    DoctorPatientMessage,
+    DoctorPatientAttachment
+)
+from app.models.doctor_password_reset import DoctorPasswordResetRequest

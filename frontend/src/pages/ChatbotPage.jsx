@@ -203,10 +203,10 @@ export default function ChatbotPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col h-[calc(100vh-56px)] lg:h-screen overflow-hidden min-w-0">
         {/* Top Header */}
         <header className="bg-white border-b border-warm-border px-6 py-4 flex items-center justify-between shrink-0 shadow-xs">
           <div className="flex items-center space-x-3">

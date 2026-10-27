@@ -56,10 +56,10 @@ export default function PredictionHistoryPage() {
   });
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-6xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-6xl w-full mx-auto space-y-8 min-w-0">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>

@@ -13,22 +13,27 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import OtpVerificationPage from './pages/OtpVerificationPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import DoctorForgotPasswordPage from './pages/DoctorForgotPasswordPage';
 
 // Patient Pages (Screens 11 - 15, Chatbot, Reports, Notifications, Feedback, Settings)
 import PatientDashboardPage from './pages/PatientDashboardPage';
+import PatientDoctorsPage from './pages/PatientDoctorsPage';
 import RiskAssessmentPage from './pages/RiskAssessmentPage';
 import PredictionResultPage from './pages/PredictionResultPage';
 import PatientReportPage from './pages/PatientReportPage';
 import PredictionHistoryPage from './pages/PredictionHistoryPage';
 import MedicalReportsPage from './pages/MedicalReportsPage';
 import ChatbotPage from './pages/ChatbotPage';
+import ChatPage from './pages/ChatPage';
 import NotificationsPage from './pages/NotificationsPage';
 import FeedbackPage from './pages/FeedbackPage';
 import SettingsPage from './pages/SettingsPage';
 
-// Doctor Pages (Screens 16 & 17)
+// Doctor Pages (Screens 16 & 17 + Consultation Management)
 import DoctorDashboardPage from './pages/DoctorDashboardPage';
 import DoctorPatientReviewPage from './pages/DoctorPatientReviewPage';
+import DoctorRequestsPage from './pages/DoctorRequestsPage';
+import DoctorAssessmentsPage from './pages/DoctorAssessmentsPage';
 
 // Admin Pages (Screens 18 & 23)
 import AdminDashboardPage from './pages/AdminDashboardPage';
@@ -48,10 +53,13 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/verify-otp" element={<OtpVerificationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/doctor/forgot-password" element={<DoctorForgotPasswordPage />} />
 
       {/* Patient Protected Routes */}
       <Route element={<ProtectedRoute allowedRoles={['patient', 'doctor', 'admin']} />}>
         <Route path="/patient/dashboard" element={<PatientDashboardPage />} />
+        <Route path="/patient/doctors" element={<PatientDoctorsPage />} />
+        <Route path="/patient/doctor-chat" element={<ChatPage />} />
         <Route path="/patient/assessment" element={<RiskAssessmentPage />} />
         <Route path="/patient/prediction-result/:id" element={<PredictionResultPage />} />
         <Route path="/patient/report/:id" element={<PatientReportPage />} />
@@ -66,6 +74,9 @@ export default function App() {
       {/* Doctor Protected Routes */}
       <Route element={<ProtectedRoute allowedRoles={['doctor', 'admin']} />}>
         <Route path="/doctor/dashboard" element={<DoctorDashboardPage />} />
+        <Route path="/doctor/requests" element={<DoctorRequestsPage />} />
+        <Route path="/doctor/chat" element={<ChatPage />} />
+        <Route path="/doctor/assessments" element={<DoctorAssessmentsPage />} />
         <Route path="/doctor/patient/:id" element={<DoctorPatientReviewPage />} />
       </Route>
 

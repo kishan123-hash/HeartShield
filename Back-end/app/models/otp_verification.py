@@ -51,6 +51,12 @@ class OTPVerification(Base):
         default="verification"
     )
 
+    channel = Column(
+        String(20),
+        nullable=False,
+        default="email"
+    )
+
     expires_at = Column(
         DateTime,
         nullable=False

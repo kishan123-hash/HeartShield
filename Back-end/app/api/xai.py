@@ -7,9 +7,12 @@ import json
 from app.database.database import get_db
 from app.models.user import User
 from app.models.patient import Patient
+from app.models.doctor import Doctor
+from app.models.doctor_patient_relationship import DoctorPatientRelationship
 from app.models.assessment import Assessment
 from app.models.prediction import ModelPrediction
 from app.core.dependencies import get_current_user, require_roles
+from app.core.security_logger import security_logger
 from app.schemas.xai import (
     SHAPExplanation,
     SHAPValue,
@@ -82,6 +85,87 @@ def generate_lime_explanation(
     ]
 
 
+def verify_xai_access(
+    prediction_id: int,
+    current_user: User,
+    db: Session
+):
+    """
+    Layer 3: Strict RBAC and IDOR authorization for XAI explanation endpoints.
+    - Patients may only view explanations for their own assessments.
+    - Doctors may only view explanations for patients assigned to them or with approved relationships.
+    - Administrators have system-wide diagnostic access.
+    """
+    prediction = db.query(ModelPrediction).filter(
+        ModelPrediction.id == prediction_id
+    ).first()
+
+    if not prediction:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prediction {prediction_id} not found"
+        )
+
+    assessment = db.query(Assessment).filter(
+        Assessment.id == prediction.assessment_id
+    ).first()
+
+    if not assessment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assessment record not found for this prediction"
+        )
+
+    patient = db.query(Patient).filter(Patient.id == assessment.patient_id).first()
+
+    if current_user.role == "patient":
+        if not patient or patient.user_id != current_user.id:
+            security_logger.log_unauthorized_access(
+                "127.0.0.1",
+                current_user.id,
+                f"/predictions/{prediction_id}/xai",
+                "Patient attempted cross-account IDOR access to prediction"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this prediction"
+            )
+    elif current_user.role == "doctor":
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        is_assigned = patient and patient.assigned_doctor_id == doctor.id
+        is_rel = db.query(DoctorPatientRelationship).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.patient_id == assessment.patient_id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).first() is not None
+
+        if not is_assigned and not is_rel:
+            security_logger.log_unauthorized_access(
+                "127.0.0.1",
+                current_user.id,
+                f"/predictions/{prediction_id}/xai",
+                "Doctor attempted unauthorized access to unassigned/unapproved patient XAI data"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access forbidden: Patient is not under your supervision"
+            )
+    elif current_user.role in ["admin", "super_admin"]:
+        pass
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this resource"
+        )
+
+    return prediction, assessment, patient
+
+
 # ==========================================
 # GET /predictions/{id}/explanation - GENERAL EXPLANATION
 # ==========================================
@@ -106,36 +190,7 @@ def get_prediction_explanation(
     - Clinical recommendations
     - Risk assessment explanation
     """
-
-    prediction = db.query(ModelPrediction).filter(
-        ModelPrediction.id == prediction_id
-    ).first()
-
-    if not prediction:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prediction {prediction_id} not found"
-        )
-
-    # Check authorization
-    if current_user.role == "patient":
-        assessment = db.query(Assessment).filter(
-            Assessment.id == prediction.assessment_id
-        ).first()
-
-        patient = db.query(Patient).filter(
-            Patient.user_id == current_user.id
-        ).first()
-
-        if not patient or patient.id != assessment.patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this prediction"
-            )
-
-    assessment = db.query(Assessment).filter(
-        Assessment.id == prediction.assessment_id
-    ).first()
+    prediction, assessment, patient = verify_xai_access(prediction_id, current_user, db)
 
     prob = float(prediction.ensemble_probability)
 
@@ -261,40 +316,7 @@ def get_shap_explanation(
     - Direction of impact (positive/negative)
     - Force plot data for visualization
     """
-
-    prediction = db.query(ModelPrediction).filter(
-        ModelPrediction.id == prediction_id
-    ).first()
-
-    if not prediction:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prediction {prediction_id} not found"
-        )
-
-    # Check authorization
-    if current_user.role == "patient":
-        assessment = db.query(Assessment).filter(
-            Assessment.id == prediction.assessment_id
-        ).first()
-
-        patient = db.query(Patient).filter(
-            Patient.user_id == current_user.id
-        ).first()
-
-        if not patient or patient.id != assessment.patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this prediction"
-            )
-
-    assessment = db.query(Assessment).filter(
-        Assessment.id == prediction.assessment_id
-    ).first()
-
-    patient = None
-    if assessment:
-        patient = db.query(Patient).filter(Patient.id == assessment.patient_id).first()
+    prediction, assessment, patient = verify_xai_access(prediction_id, current_user, db)
 
     shap_res = prediction_service.compute_shap(assessment, patient)
     top_features = [
@@ -369,40 +391,7 @@ def get_lime_explanation(
     - Feature contribution direction
     - Interpretable local decision boundary
     """
-
-    prediction = db.query(ModelPrediction).filter(
-        ModelPrediction.id == prediction_id
-    ).first()
-
-    if not prediction:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prediction {prediction_id} not found"
-        )
-
-    # Check authorization
-    if current_user.role == "patient":
-        assessment = db.query(Assessment).filter(
-            Assessment.id == prediction.assessment_id
-        ).first()
-
-        patient = db.query(Patient).filter(
-            Patient.user_id == current_user.id
-        ).first()
-
-        if not patient or patient.id != assessment.patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this prediction"
-            )
-
-    assessment = db.query(Assessment).filter(
-        Assessment.id == prediction.assessment_id
-    ).first()
-
-    patient = None
-    if assessment:
-        patient = db.query(Patient).filter(Patient.id == assessment.patient_id).first()
+    prediction, assessment, patient = verify_xai_access(prediction_id, current_user, db)
 
     lime_res = prediction_service.compute_lime(assessment, patient)
     top_features = [
@@ -457,40 +446,7 @@ def compare_explanations(
     - Feature importance consensus
     - Potential inconsistencies in model behavior
     """
-
-    prediction = db.query(ModelPrediction).filter(
-        ModelPrediction.id == prediction_id
-    ).first()
-
-    if not prediction:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prediction {prediction_id} not found"
-        )
-
-    # Check authorization
-    if current_user.role == "patient":
-        assessment = db.query(Assessment).filter(
-            Assessment.id == prediction.assessment_id
-        ).first()
-
-        patient = db.query(Patient).filter(
-            Patient.user_id == current_user.id
-        ).first()
-
-        if not patient or patient.id != assessment.patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this prediction"
-            )
-
-    assessment = db.query(Assessment).filter(
-        Assessment.id == prediction.assessment_id
-    ).first()
-
-    patient = None
-    if assessment:
-        patient = db.query(Patient).filter(Patient.id == assessment.patient_id).first()
+    prediction, assessment, patient = verify_xai_access(prediction_id, current_user, db)
 
     shap_res = prediction_service.compute_shap(assessment, patient)
     lime_res = prediction_service.compute_lime(assessment, patient)

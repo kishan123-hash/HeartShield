@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -127,14 +128,102 @@ def get_report_detail(
         .first()
     )
 
-    # Doctor access check or owner check
-    if not report or (report.user_id != current_user.id and current_user.role not in ["doctor", "admin"]):
+    if not report:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Medical report not found"
         )
 
-    return report
+    # Patient owns the report
+    if report.user_id == current_user.id:
+        return report
+
+    # Admin has system-wide access
+    if current_user.role == "admin":
+        return report
+
+    # Doctor access: must have assigned or approved relationship
+    if current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if doctor and report.patient_id:
+            is_assigned = db.query(Patient).filter(
+                Patient.id == report.patient_id,
+                Patient.assigned_doctor_id == doctor.id
+            ).first()
+            is_rel = db.query(DoctorPatientRelationship).filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == report.patient_id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            ).first()
+            if is_assigned or is_rel:
+                return report
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access forbidden: You do not have permission to view this medical report"
+    )
+
+
+@router.get(
+    "/{report_id}/download",
+    summary="Download the raw uploaded medical report file (Authorized users only)"
+)
+def download_medical_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    report = (
+        db.query(PatientMedicalReport)
+        .filter(PatientMedicalReport.id == report_id)
+        .first()
+    )
+
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Medical report not found"
+        )
+
+    authorized = False
+    if report.user_id == current_user.id or current_user.role == "admin":
+        authorized = True
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if doctor and report.patient_id:
+            is_assigned = db.query(Patient).filter(
+                Patient.id == report.patient_id,
+                Patient.assigned_doctor_id == doctor.id
+            ).first()
+            is_rel = db.query(DoctorPatientRelationship).filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == report.patient_id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            ).first()
+            if is_assigned or is_rel:
+                authorized = True
+
+    if not authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access forbidden: You do not have permission to download this report"
+        )
+
+    if not os.path.exists(report.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report file not found on disk"
+        )
+
+    return FileResponse(
+        path=report.file_path,
+        filename=report.original_filename,
+        media_type=report.mime_type
+    )
 
 
 @router.delete(

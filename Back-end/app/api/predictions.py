@@ -212,8 +212,29 @@ def get_predictions(
         ).filter(
             Assessment.patient_id == patient.id
         )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        assigned_pts = [p[0] for p in db.query(Patient.id).filter(Patient.assigned_doctor_id == doctor.id).all()]
+        rel_pts = [r[0] for r in db.query(DoctorPatientRelationship.patient_id).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).all()]
+        allowed_patient_ids = list(set(assigned_pts + rel_pts))
+        query = db.query(ModelPrediction).join(
+            Assessment,
+            ModelPrediction.assessment_id == Assessment.id
+        ).filter(
+            Assessment.patient_id.in_(allowed_patient_ids)
+        )
     else:
-        # Doctors and admins see all predictions
+        # Admins see all predictions
         query = db.query(ModelPrediction)
 
     total = query.count()
@@ -268,6 +289,27 @@ def get_latest_prediction(
             ModelPrediction.assessment_id == Assessment.id
         ).filter(
             Assessment.patient_id == patient.id
+        )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        assigned_pts = [p[0] for p in db.query(Patient.id).filter(Patient.assigned_doctor_id == doctor.id).all()]
+        rel_pts = [r[0] for r in db.query(DoctorPatientRelationship.patient_id).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).all()]
+        allowed_patient_ids = list(set(assigned_pts + rel_pts))
+        query = db.query(ModelPrediction).join(
+            Assessment,
+            ModelPrediction.assessment_id == Assessment.id
+        ).filter(
+            Assessment.patient_id.in_(allowed_patient_ids)
         )
     else:
         query = db.query(ModelPrediction)
@@ -527,6 +569,33 @@ def get_prediction(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have access to this prediction"
             )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        assessment = db.query(Assessment).filter(
+            Assessment.id == prediction.assessment_id
+        ).first()
+        if assessment:
+            is_assigned = db.query(Patient).filter(
+                Patient.id == assessment.patient_id,
+                Patient.assigned_doctor_id == doctor.id
+            ).first()
+            is_rel = db.query(DoctorPatientRelationship).filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == assessment.patient_id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            ).first()
+            if not is_assigned and not is_rel:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access forbidden: Patient is not under your supervision"
+                )
 
     return prediction
 

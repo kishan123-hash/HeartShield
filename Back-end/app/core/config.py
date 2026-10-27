@@ -1,4 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    SettingsConfigDict
+)
 
 
 class Settings(BaseSettings):
@@ -22,7 +25,7 @@ class Settings(BaseSettings):
     UPLOAD_DIRECTORY: str = "reports_storage/medical_reports"
 
     # ==========================================
-    # SMTP / EMAIL SETTINGS
+    # SMTP / EMAIL SETTINGS (Fallback)
     # ==========================================
 
     SMTP_HOST: str = "smtp.gmail.com"
@@ -31,12 +34,23 @@ class Settings(BaseSettings):
 
     SMTP_USERNAME: str = "projectwork1220@gmail.com"
 
-    SMTP_PASSWORD: str="aqguersyznvnaael"
+    SMTP_PASSWORD: str = ""
 
     SMTP_FROM_EMAIL: str = "projectwork1220@gmail.com"
 
+    # ==========================================
+    # BREVO API SETTINGS
+    # ==========================================
+
+    BREVO_API_KEY: str = ""
+
+    BREVO_SENDER_EMAIL: str = "workingmeet09@gmail.com"
+
+    BREVO_SENDER_NAME: str = "HeartShield"
+
     model_config = SettingsConfigDict(
-        env_file=".env"
+        env_file=".env",
+        extra="ignore"
     )
 
 

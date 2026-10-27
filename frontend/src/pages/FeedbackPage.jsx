@@ -72,10 +72,10 @@ export default function FeedbackPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-4xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-4xl w-full mx-auto space-y-8 min-w-0">
         {/* Header */}
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-brand-800 bg-brand-50 px-2.5 py-0.5 rounded-full border border-brand-200">

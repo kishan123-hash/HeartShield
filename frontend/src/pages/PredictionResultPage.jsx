@@ -107,7 +107,7 @@ export default function PredictionResultPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex bg-warm-bg">
+      <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
         <Sidebar />
         <main className="flex-1 flex flex-col items-center justify-center p-8">
           <div className="w-12 h-12 border-4 border-brand-800 border-t-transparent rounded-full animate-spin mb-4" />
@@ -119,7 +119,7 @@ export default function PredictionResultPage() {
 
   if (error || !prediction) {
     return (
-      <div className="min-h-screen flex bg-warm-bg">
+      <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
         <Sidebar />
         <main className="flex-1 p-8 max-w-4xl mx-auto flex flex-col items-center justify-center text-center">
           <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
@@ -153,10 +153,10 @@ export default function PredictionResultPage() {
   const xgbVote = xgbProb >= 50 ? 'Positive (1)' : 'Negative (0)';
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-5xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-5xl w-full mx-auto space-y-8 min-w-0">
         {/* Top Navigation & Title */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">

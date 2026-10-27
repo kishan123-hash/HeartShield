@@ -28,44 +28,47 @@ export default function RiskGauge({ percentage = 28, riskLevel = 'Moderate Risk'
 
   return (
     <div className="flex flex-col items-center justify-center p-4">
-      <div className="relative w-48 h-28 flex items-center justify-center">
-        <svg className="w-48 h-48 -rotate-180 transform" viewBox="0 0 200 200">
-          {/* Background Arc */}
-          <circle
-            cx="100"
-            cy="100"
-            r={radius}
-            fill="none"
-            stroke="#F0E3E1"
-            strokeWidth={strokeWidth}
-            strokeDasharray={circumference}
-            strokeDashoffset="0"
-            strokeLinecap="round"
-          />
-          {/* Active Value Arc */}
-          <circle
-            cx="100"
-            cy="100"
-            r={radius}
-            fill="none"
-            stroke={activeColor}
-            strokeWidth={strokeWidth}
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            className="transition-all duration-1000 ease-out"
-          />
+      {/* Probability Gauge semi-circle container */}
+      <div className="relative w-48 h-28 flex items-end justify-center select-none">
+        <svg className="w-48 h-28 overflow-visible" viewBox="0 0 200 110" aria-label={`Risk Probability ${val}%`}>
+          <g transform="rotate(-180 100 100)">
+            {/* Background Arc */}
+            <circle
+              cx="100"
+              cy="100"
+              r={radius}
+              fill="none"
+              stroke="#F0E3E1"
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset="0"
+              strokeLinecap="round"
+            />
+            {/* Active Value Arc */}
+            <circle
+              cx="100"
+              cy="100"
+              r={radius}
+              fill="none"
+              stroke={activeColor}
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              className="transition-all duration-1000 ease-out"
+            />
+          </g>
         </svg>
 
-        {/* Center Text */}
-        <div className="absolute bottom-2 text-center">
-          <span className="text-3xl font-black text-gray-900 tracking-tight">{val}%</span>
-          <span className="block text-[11px] font-semibold text-warm-muted uppercase tracking-wider">Probability</span>
+        {/* Center Text inside the arc */}
+        <div className="absolute bottom-1 text-center pointer-events-none">
+          <span className="text-3xl font-black text-gray-900 tracking-tight leading-none block">{val}%</span>
+          <span className="block text-[11px] font-semibold text-warm-muted uppercase tracking-wider mt-0.5">Probability</span>
         </div>
       </div>
 
-      {/* Risk Badge */}
-      <div className={`mt-3 px-4 py-1.5 rounded-full border text-xs font-bold tracking-wide uppercase ${getRiskBg(riskLevel)}`}>
+      {/* Risk Badge cleanly spaced below the gauge */}
+      <div className={`mt-4 px-4 py-1.5 rounded-full border text-xs font-bold tracking-wide uppercase transition-all ${getRiskBg(riskLevel)}`}>
         {riskLevel}
       </div>
     </div>

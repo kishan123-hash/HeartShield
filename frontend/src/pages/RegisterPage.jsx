@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Heart, Lock, Mail, User, AlertCircle, ArrowRight, Stethoscope } from 'lucide-react';
+import {
+  Shield,
+  Heart,
+  Lock,
+  Mail,
+  User,
+  AlertCircle,
+  ArrowRight,
+  Stethoscope,
+} from 'lucide-react';
 import api from '../api/client';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -27,7 +36,7 @@ export default function RegisterPage() {
 
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleInitialSubmit = (e) => {
     e.preventDefault();
     setError('');
 
@@ -46,40 +55,67 @@ export default function RegisterPage() {
       return;
     }
 
+    if (role === 'patient') {
+      executePatientRegistration();
+    } else {
+      executeDoctorRegistration();
+    }
+  };
+
+  const executePatientRegistration = async () => {
+    setError('');
     setLoading(true);
 
     try {
-      if (role === 'patient') {
-        await api.post('/auth/register/patient', {
-          full_name: formData.full_name.trim(),
-          email: formData.email.trim(),
-          phone: formData.phone.trim() || undefined,
-          password: formData.password,
-          gender: formData.gender,
-          date_of_birth: formData.date_of_birth,
-        });
-      } else {
-        await api.post('/auth/register/doctor', {
-          full_name: formData.full_name.trim(),
-          email: formData.email.trim(),
-          phone: formData.phone.trim() || undefined,
-          password: formData.password,
-          specialization: formData.specialization,
-          medical_license_number: formData.medical_license_number || `LIC-${Date.now().toString().slice(-6)}`,
-          hospital_name: formData.hospital_name,
-          years_of_experience: Number(formData.years_of_experience) || 0,
-        });
-      }
+      await api.post('/auth/register/patient', {
+        full_name: formData.full_name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        password: formData.password,
+        gender: formData.gender,
+        date_of_birth: formData.date_of_birth,
+        channel: 'email',
+      });
 
-      // Navigate to OTP verification with email passed
-      navigate(`/verify-otp?email=${encodeURIComponent(formData.email.trim())}`);
+      navigate(
+        `/verify-otp?email=${encodeURIComponent(formData.email.trim())}`
+      );
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('Patient registration error:', err);
       const detail = err.response?.data?.detail;
       setError(
         typeof detail === 'string'
           ? detail
-          : 'Registration failed. This email may already be in use.'
+          : 'Registration failed. Please check your credentials.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeDoctorRegistration = async () => {
+    setLoading(true);
+
+    try {
+      await api.post('/auth/register/doctor', {
+        full_name: formData.full_name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        password: formData.password,
+        specialization: formData.specialization,
+        medical_license_number: formData.medical_license_number || `LIC-${Date.now().toString().slice(-6)}`,
+        hospital_name: formData.hospital_name,
+        years_of_experience: Number(formData.years_of_experience) || 0,
+      });
+
+      navigate(`/verify-otp?email=${encodeURIComponent(formData.email.trim())}`);
+    } catch (err) {
+      console.error('Doctor registration error:', err);
+      const detail = err.response?.data?.detail;
+      setError(
+        typeof detail === 'string'
+          ? detail
+          : 'Registration failed. This email or medical license may already be registered.'
       );
     } finally {
       setLoading(false);
@@ -90,8 +126,8 @@ export default function RegisterPage() {
     <div className="min-h-screen flex flex-col bg-warm-bg">
       <Navbar />
 
-      <main className="flex-1 flex items-center justify-center p-4 py-12">
-        <div className="w-full max-w-lg bg-white rounded-3xl border border-warm-border shadow-md p-8 sm:p-10 space-y-6">
+      <main className="flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
+        <div className="w-full max-w-lg bg-white rounded-3xl border border-warm-border shadow-md p-6 sm:p-10 space-y-6">
           {/* Header */}
           <div className="text-center space-y-2">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-800 to-brand-900 flex items-center justify-center text-white mx-auto shadow-md shadow-brand-900/20">
@@ -137,7 +173,7 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleInitialSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                 Full Name
@@ -149,7 +185,7 @@ export default function RegisterPage() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. John Doe"
+                  placeholder="Enter full name"
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
@@ -183,7 +219,7 @@ export default function RegisterPage() {
                 </label>
                 <input
                   type="tel"
-                  placeholder="+91 9876543210"
+                  placeholder="+919876543210"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
@@ -191,9 +227,9 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Patient Fields */}
-            {role === 'patient' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Role Specific Fields */}
+            {role === 'patient' ? (
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                     Gender
@@ -201,14 +237,13 @@ export default function RegisterPage() {
                   <select
                     value={formData.gender}
                     onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800 bg-white"
+                    className="w-full px-3 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
                   >
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                     Date of Birth
@@ -218,45 +253,75 @@ export default function RegisterPage() {
                     required
                     value={formData.date_of_birth}
                     onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
+                    className="w-full px-3 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
                   />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Medical License #
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. MED-8921"
+                      value={formData.medical_license_number}
+                      onChange={(e) => setFormData({ ...formData, medical_license_number: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Clinical Specialty
+                    </label>
+                    <select
+                      value={formData.specialization}
+                      onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
+                    >
+                      <option value="Cardiology">Cardiology</option>
+                      <option value="Cardiac Surgery">Cardiac Surgery</option>
+                      <option value="Internal Medicine">Internal Medicine</option>
+                      <option value="Interventional Cardiology">Interventional Cardiology</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Hospital / Clinic
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Hospital Name"
+                      value={formData.hospital_name}
+                      onChange={(e) => setFormData({ ...formData, hospital_name: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Years of Experience
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={formData.years_of_experience}
+                      onChange={(e) => setFormData({ ...formData, years_of_experience: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
+                    />
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Doctor Fields */}
-            {role === 'doctor' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Specialization
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Cardiology"
-                    value={formData.specialization}
-                    onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Medical License No.
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. MH123456"
-                    value={formData.medical_license_number}
-                    onChange={(e) => setFormData({ ...formData, medical_license_number: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
-                  />
-                </div>
-              </div>
-            )}
-
+            {/* Passwords */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
@@ -269,7 +334,7 @@ export default function RegisterPage() {
                   <input
                     type="password"
                     required
-                    placeholder="Create password"
+                    placeholder="Min. 6 chars"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-warm-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/20 focus:border-brand-800"
@@ -317,7 +382,7 @@ export default function RegisterPage() {
               disabled={loading}
               className="w-full inline-flex items-center justify-center space-x-2 py-3 rounded-full text-sm font-bold text-white bg-brand-800 hover:bg-brand-900 shadow-md shadow-brand-900/20 transition-all disabled:opacity-50 mt-3"
             >
-              <span>{loading ? 'Registering...' : 'Create Account'}</span>
+              <span>{loading ? 'Processing...' : role === 'patient' ? 'Register' : 'Create Doctor Account'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

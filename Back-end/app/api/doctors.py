@@ -256,8 +256,10 @@ def get_assigned_patient_details(
             detail="Doctor profile not found"
         )
 
-    # 2. Fetch only a patient assigned to this doctor
-    patient_record = (
+    # 2. Fetch patient: check assigned OR approved via consultation relationship
+    from app.models.doctor_patient_relationship import DoctorPatientRelationship
+
+    is_assigned = (
         db.query(Patient, User)
         .join(User, Patient.user_id == User.id)
         .filter(
@@ -267,6 +269,30 @@ def get_assigned_patient_details(
         .first()
     )
 
+    if not is_assigned:
+        is_rel = (
+            db.query(DoctorPatientRelationship)
+            .filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == patient_id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            )
+            .first()
+        )
+        if not is_rel:
+            raise HTTPException(
+                status_code=404,
+                detail="Patient not found or not assigned to you"
+            )
+        patient_record = (
+            db.query(Patient, User)
+            .join(User, Patient.user_id == User.id)
+            .filter(Patient.id == patient_id)
+            .first()
+        )
+    else:
+        patient_record = is_assigned
+
     if not patient_record:
         raise HTTPException(
             status_code=404,
@@ -275,7 +301,7 @@ def get_assigned_patient_details(
 
     patient, patient_user = patient_record
 
-    # 3. Fetch this patient's saved assessments
+    # 3. Fetch this patient's saved assessments (latest first)
     assessments = (
         db.query(Assessment)
         .filter(
@@ -312,7 +338,28 @@ def get_assigned_patient_details(
 
         assessment_list.append(assessment_data)
 
-    # 6. Return patient profile and actual assessment history
+    latest_assessment = assessment_list[0] if assessment_list else None
+    latest_prediction = None
+    if latest_assessment:
+        pred_record = (
+            db.query(ModelPrediction)
+            .filter(ModelPrediction.assessment_id == latest_assessment.get("id"))
+            .first()
+        )
+        if pred_record:
+            latest_prediction = {
+                "id": pred_record.id,
+                "assessment_id": pred_record.assessment_id,
+                "risk_level": pred_record.risk_level,
+                "prediction_label": pred_record.prediction_label,
+                "ensemble_probability": float(pred_record.ensemble_probability) if pred_record.ensemble_probability is not None else None,
+                "logistic_probability": float(pred_record.logistic_probability) if pred_record.logistic_probability is not None else None,
+                "random_forest_probability": float(pred_record.random_forest_probability) if pred_record.random_forest_probability is not None else None,
+                "xgboost_probability": float(pred_record.xgboost_probability) if pred_record.xgboost_probability is not None else None,
+                "created_at": serialize_value(pred_record.created_at)
+            }
+
+    # 6. Return patient profile and actual assessment history with latest assessment
     return {
         "patient": {
             "patient_id": patient.id,
@@ -331,6 +378,9 @@ def get_assigned_patient_details(
             "country": patient.country,
             "created_at": serialize_value(patient.created_at)
         },
+        "latest_assessment": latest_assessment,
+        "latest_prediction": latest_prediction,
+        "message": "Assessment found" if latest_assessment else "No assessment found",
         "total_assessments": len(assessment_list),
         "assessments": assessment_list
     }

@@ -10,7 +10,9 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
-  Heart
+  Heart,
+  Stethoscope,
+  MessageCircle
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
@@ -72,10 +74,10 @@ export default function PatientDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-warm-bg">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-warm-bg w-full min-w-0 overflow-x-hidden">
       <Sidebar />
 
-      <main className="flex-1 p-6 sm:p-10 max-w-7xl mx-auto space-y-8">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 max-w-7xl w-full mx-auto space-y-8 min-w-0">
         {/* Welcome Greeting Banner (Screen 11) */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-warm-border shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
           <div className="space-y-1.5">
@@ -87,13 +89,23 @@ export default function PatientDashboardPage() {
             </p>
           </div>
 
-          <Link
-            to="/patient/assessment"
-            className="inline-flex items-center space-x-2 px-6 py-3 rounded-full bg-brand-800 text-white font-bold text-sm hover:bg-brand-900 shadow-md shadow-brand-900/20 transition-all shrink-0"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>Start New Assessment</span>
-          </Link>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <Link
+              to="/patient/doctors"
+              className="inline-flex items-center space-x-2 px-5 py-3 rounded-full bg-rose-50 text-brand-800 font-bold text-xs hover:bg-rose-100 border border-brand-200 transition-all shrink-0"
+            >
+              <Stethoscope className="w-4 h-4" />
+              <span>Consult Cardiologist</span>
+            </Link>
+
+            <Link
+              to="/patient/assessment"
+              className="inline-flex items-center space-x-2 px-6 py-3 rounded-full bg-brand-800 text-white font-bold text-sm hover:bg-brand-900 shadow-md shadow-brand-900/20 transition-all shrink-0"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Start New Assessment</span>
+            </Link>
+          </div>
         </div>
 
         {/* 3 Metric Cards */}
