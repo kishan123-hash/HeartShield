@@ -48,3 +48,6 @@ frontend/build/
 # Environment files
 Back-end/.env
 frontend/.env
+
+*.joblib
+!app/MachineLearning/models/*.joblib
