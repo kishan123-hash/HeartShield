@@ -569,6 +569,22 @@ def list_reports(
                 limit=limit,
                 reports=[]
             )
+    elif current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        assigned_pts = [p[0] for p in db.query(Patient.id).filter(Patient.assigned_doctor_id == doctor.id).all()]
+        rel_pts = [r[0] for r in db.query(DoctorPatientRelationship.patient_id).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).all()]
+        allowed_patient_ids = list(set(assigned_pts + rel_pts))
+        query = query.filter(Report.patient_id.in_(allowed_patient_ids))
 
     if status_filter:
         query = query.filter(Report.status == status_filter)
@@ -715,6 +731,28 @@ def approve_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Report {report_id} not found"
         )
+
+    if current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        patient = db.query(Patient).filter(Patient.id == report.patient_id).first()
+        is_assigned = patient and patient.assigned_doctor_id == doctor.id
+        is_rel = db.query(DoctorPatientRelationship).filter(
+            DoctorPatientRelationship.doctor_id == doctor.id,
+            DoctorPatientRelationship.patient_id == report.patient_id,
+            DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+        ).first() is not None
+        if not is_assigned and not is_rel:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access forbidden: Patient is not under your supervision"
+            )
 
     report.is_approved = data.is_approved
     report.approved_by_id = current_user.id

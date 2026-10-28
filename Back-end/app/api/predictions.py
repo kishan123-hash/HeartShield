@@ -636,6 +636,33 @@ def update_prediction(
             detail=f"Prediction with ID {prediction_id} not found"
         )
 
+    # Enforce supervisory relationship for doctors
+    if current_user.role == "doctor":
+        from app.models.doctor import Doctor
+        from app.models.doctor_patient_relationship import DoctorPatientRelationship
+        doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctor profile not found"
+            )
+        assessment = db.query(Assessment).filter(Assessment.id == prediction.assessment_id).first()
+        if assessment:
+            is_assigned = db.query(Patient).filter(
+                Patient.id == assessment.patient_id,
+                Patient.assigned_doctor_id == doctor.id
+            ).first()
+            is_rel = db.query(DoctorPatientRelationship).filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == assessment.patient_id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            ).first()
+            if not is_assigned and not is_rel:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access forbidden: Patient is not under your supervision"
+                )
+
     # Update fields if provided
     if data.ensemble_probability is not None:
         prediction.ensemble_probability = data.ensemble_probability

@@ -1,3 +1,4 @@
+import re
 import os
 import uuid
 import logging
@@ -43,9 +44,26 @@ async def upload_medical_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # 1. Read file bytes
-    file_bytes = await file.read()
-    filename = file.filename or "uploaded_report"
+    # 1. Stream file bytes with bounded chunk reading (Anti-DoS buffer guard)
+    CHUNK_SIZE = 64 * 1024  # 64 KB chunks
+    MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+    byte_chunks = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size exceeds maximum allowed limit (10MB)"
+            )
+        byte_chunks.append(chunk)
+
+    file_bytes = b"".join(byte_chunks)
+    filename = re.sub(r'[\r\n\x00-\x1f\x7f]', '', file.filename or "uploaded_report")[:150]
     content_type = file.content_type or "application/octet-stream"
 
     # 2. Content-based validation
@@ -219,9 +237,10 @@ def download_medical_report(
             detail="Report file not found on disk"
         )
 
+    safe_filename = re.sub(r'[\r\n"\\]', '', report.original_filename or "report")
     return FileResponse(
         path=report.file_path,
-        filename=report.original_filename,
+        filename=safe_filename,
         media_type=report.mime_type
     )
 

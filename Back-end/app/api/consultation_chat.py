@@ -1,3 +1,4 @@
+import re
 import os
 import uuid
 import logging
@@ -31,6 +32,7 @@ from app.models.consultation_chat import (
     DoctorPatientAttachment
 )
 from app.core.dependencies import get_current_user
+from app.core.token_blocklist import token_blocklist
 from app.schemas.consultation import (
     MessageSendRequest,
     MessageResponse,
@@ -477,21 +479,30 @@ async def upload_attachment(
             detail=f"Unsupported file format '{ext_lower}'. Allowed formats: JPG, JPEG, PNG, WEBP, PDF."
         )
 
-    # 2. Read contents & validate size (up to 10 MB)
-    content = await file.read()
-    file_size = len(content)
+    # 2. Read contents & validate size via bounded streaming (Anti-DoS)
+    CHUNK_SIZE = 64 * 1024  # 64 KB chunks
+    byte_chunks = []
+    file_size = 0
 
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File exceeds maximum allowed limit of 10 MB (File size: {round(file_size / (1024 * 1024), 2)} MB)."
-        )
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        file_size += len(chunk)
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File exceeds maximum allowed limit of 10 MB."
+            )
+        byte_chunks.append(chunk)
 
     if file_size == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty."
         )
+
+    content = b"".join(byte_chunks)
 
     # 3. MIME type validation
     content_type = file.content_type or "application/octet-stream"
@@ -611,6 +622,12 @@ def get_attachment_user(
             detail="Authentication required."
         )
 
+    if token_blocklist.is_token_revoked(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please log in again."
+        )
+
     try:
         payload = jwt.decode(
             token,
@@ -677,12 +694,13 @@ def get_chat_attachment(
     is_pdf = att.file_type == "application/pdf"
     content_disposition_type = "inline" if (att.file_type.startswith("image/") or is_pdf) else "attachment"
 
+    safe_filename = re.sub(r'[\r\n"\\]', '', att.original_filename or "attachment")
     return FileResponse(
         path=resolved_path,
         media_type=att.file_type,
-        filename=att.original_filename,
+        filename=safe_filename,
         headers={
-            "Content-Disposition": f'{content_disposition_type}; filename="{att.original_filename}"',
+            "Content-Disposition": f'{content_disposition_type}; filename="{safe_filename}"',
             "Cache-Control": "private, max-age=3600"
         }
     )

@@ -919,20 +919,31 @@ def reset_password(
             )
     elif token.isdigit() and len(token) == 6:
         identifier = (data.identifier or data.email or "").strip()
+        if not identifier:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email address or phone number is required for OTP password reset."
+            )
         user = None
-        if identifier:
-            if "@" in identifier:
-                user = db.query(User).filter(User.email == identifier.lower()).first()
-            else:
-                user = db.query(User).filter(User.phone == identifier).first()
+        if "@" in identifier:
+            user = db.query(User).filter(User.email == identifier.lower()).first()
+        else:
+            user = db.query(User).filter(User.phone == identifier).first()
+            if not user:
+                formatted = format_phone_e164(identifier)
+                user = db.query(User).filter(User.phone == formatted).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account associated with the provided email or phone number."
+            )
 
         query = db.query(OTPVerification).filter(
             OTPVerification.purpose == "password_reset",
+            OTPVerification.user_id == user.id,
             OTPVerification.is_used == False
         )
-        if user:
-            query = query.filter(OTPVerification.user_id == user.id)
-
         otp_record = query.order_by(OTPVerification.created_at.desc()).first()
 
         if not otp_record:
@@ -967,6 +978,12 @@ def reset_password(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patient accounts can reset password via this route"
+        )
+
+    if len(data.new_password.encode('utf-8')) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot exceed 72 bytes due to algorithm boundaries."
         )
 
     target_user.password_hash = hash_password(data.new_password)
@@ -1239,6 +1256,12 @@ def doctor_forgot_password_reset(
         )
 
     # Validated: both admin approval and OTP verified!
+    if len(data.new_password.encode('utf-8')) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot exceed 72 bytes due to algorithm boundaries."
+        )
+
     user.password_hash = hash_password(data.new_password)
     otp_record.is_used = True
     latest_req.status = "completed"

@@ -1,3 +1,5 @@
+from typing import Optional
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -96,22 +98,42 @@ def update_user_profile(
 # CHANGE PASSWORD
 # ==========================================
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=72)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
 @router.put("/change-password")
 def change_password(
-    current_password: str,
-    new_password: str,
+    payload: Optional[ChangePasswordRequest] = None,
+    current_password: Optional[str] = None,
+    new_password: Optional[str] = None,
 
     current_user: User = Depends(get_current_user),
 
     db: Session = Depends(get_db)
 ):
+    cur_pwd = payload.current_password if payload else current_password
+    new_pwd = payload.new_password if payload else new_password
+
+    if not cur_pwd or not new_pwd:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="current_password and new_password are required"
+        )
+
+    # Prevent bcrypt 72-byte truncation vulnerability
+    if len(new_pwd.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must not exceed 72 bytes"
+        )
 
     # ======================================
     # VERIFY CURRENT PASSWORD
     # ======================================
 
     if not verify_password(
-        current_password,
+        cur_pwd,
         current_user.password_hash
     ):
         raise HTTPException(
@@ -123,7 +145,7 @@ def change_password(
     # VALIDATE NEW PASSWORD
     # ======================================
 
-    if len(new_password) < 8:
+    if len(new_pwd) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be at least 8 characters long"
@@ -134,7 +156,7 @@ def change_password(
     # ======================================
 
     if verify_password(
-        new_password,
+        new_pwd,
         current_user.password_hash
     ):
         raise HTTPException(
@@ -147,7 +169,7 @@ def change_password(
     # ======================================
 
     current_user.password_hash = hash_password(
-        new_password
+        new_pwd
     )
 
     db.commit()

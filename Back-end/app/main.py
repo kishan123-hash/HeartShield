@@ -78,25 +78,40 @@ app = FastAPI(
 # Layer 1: Security Headers
 app.add_middleware(SecurityHeadersMiddleware)
 
+def get_client_ip(request: Request) -> str:
+    """Safely extracts client IP address behind reverse proxies (Render, Cloudflare, etc.)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[0]
+    return request.client.host if request.client else "127.0.0.1"
+
 # Layer 2: Auth Rate Limiter Middleware
 @app.middleware("http")
 async def rate_limit_auth_middleware(request: Request, call_next):
     path = request.url.path
-    if request.method != "OPTIONS" and any(route in path for route in [
-        "/api/v1/auth/login",
-        "/api/v1/auth/register",
-        "/api/v1/auth/send-otp",
-        "/api/v1/auth/verify-otp"
-    ]):
-        client_ip = request.client.host if request.client else "127.0.0.1"
-        key = f"auth:{path}:{client_ip}"
-        allowed, retry_after = rate_limiter.is_allowed(key, max_requests=25, window_seconds=60)
-        if not allowed:
-            security_logger.log_rate_limit(client_ip, path)
-            return JSONResponse(
-                status_code=429,
-                content={"detail": f"Rate limit exceeded. Please wait {retry_after} seconds before retrying."}
-            )
+    if request.method != "OPTIONS":
+        auth_routes = [
+            "/api/v1/auth/login",
+            "/api/v1/auth/register",
+            "/api/v1/auth/send-otp",
+            "/api/v1/auth/verify-otp",
+            "/api/v1/auth/forgot-password",
+            "/api/v1/auth/reset-password",
+            "/api/v1/auth/doctor/forgot-password"
+        ]
+        if any(route in path for route in auth_routes):
+            client_ip = get_client_ip(request)
+            key = f"auth:{path}:{client_ip}"
+            max_reqs = 15 if ("reset-password" in path or "forgot-password" in path) else 25
+            allowed, retry_after = rate_limiter.is_allowed(key, max_requests=max_reqs, window_seconds=60)
+            if not allowed:
+                security_logger.log_rate_limit(client_ip, path)
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": f"Rate limit exceeded. Please wait {retry_after} seconds before retrying."}
+                )
     return await call_next(request)
 
 # Layer 5: Centralized Error Sanitization Handler

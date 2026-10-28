@@ -38,6 +38,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    try {
+      api.post('/auth/logout').catch(() => {});
+    } catch (e) {
+      // ignore network errors during logout
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);

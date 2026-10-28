@@ -583,7 +583,7 @@ def get_doctor_dashboard(
 
 @doctor_router.get("/approvals/pending")
 def get_pending_doctor_approvals(
-    current_user: User = Depends(require_roles("doctor")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     # Get all doctors whose professional verification is pending
@@ -624,7 +624,7 @@ def get_pending_doctor_approvals(
 @doctor_router.put("/users/{id}/approve")
 def approve_doctor(
     id: int,
-    current_user: User = Depends(require_roles("doctor")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     # Find the doctor using the user ID
@@ -670,7 +670,7 @@ def approve_doctor(
 @doctor_router.put("/users/{id}/reject")
 def reject_doctor(
     id: int,
-    current_user: User = Depends(require_roles("doctor")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     # Find doctor using user ID
@@ -1960,7 +1960,7 @@ def create_doctor_recommendation(
 
 @doctor_router.get("/approvals/pending")
 def get_pending_doctor_approvals(
-    current_user: User = Depends(require_roles("doctor", "admin")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1997,7 +1997,7 @@ def get_pending_doctor_approvals(
 @doctor_router.put("/users/{user_id}/approve")
 def approve_doctor_user(
     user_id: int,
-    current_user: User = Depends(require_roles("doctor", "admin")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """
@@ -2052,7 +2052,7 @@ def approve_doctor_user(
 @doctor_router.put("/users/{user_id}/reject")
 def reject_doctor_user(
     user_id: int,
-    current_user: User = Depends(require_roles("doctor", "admin")),
+    current_user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """

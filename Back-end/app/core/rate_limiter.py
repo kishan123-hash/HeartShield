@@ -48,7 +48,11 @@ def check_rate_limit(request: Request, max_requests: int = 15, window_seconds: i
     """
     Dependency or helper to evaluate client rate limit based on client host IP.
     """
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip() or "127.0.0.1"
+    else:
+        client_ip = request.client.host if request.client else "127.0.0.1"
     path = request.url.path
     key = f"{prefix}:{path}:{client_ip}"
 

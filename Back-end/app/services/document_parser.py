@@ -83,7 +83,7 @@ class DocumentParserService:
                 return full_text
             except Exception as e:
                 logger.error(f"PDF extraction error: {e}")
-                return f"[Error parsing PDF document: {e}]"
+                return "[Error: Unable to extract text from PDF document.]"
 
         elif ext == ".docx":
             try:
@@ -102,7 +102,7 @@ class DocumentParserService:
                 return full_text.strip()
             except Exception as e:
                 logger.error(f"DOCX extraction error: {e}")
-                return f"[Error parsing DOCX document: {e}]"
+                return "[Error: Unable to extract text from DOCX document.]"
 
         elif ext in [".png", ".jpg", ".jpeg", ".webp"]:
             # Image OCR via Gemini Vision

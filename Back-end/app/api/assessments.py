@@ -155,7 +155,7 @@ def create_assessment(
         logger.error(f"Failed to generate prediction for assessment {assessment.id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate risk assessment prediction using the trained ML model: {str(e)}"
+            detail="Failed to generate risk assessment prediction. Please try again or contact support."
         )
 
     # ======================================
