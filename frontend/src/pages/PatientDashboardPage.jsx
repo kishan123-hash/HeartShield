@@ -15,6 +15,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
+import RiskTrendChart from '../components/RiskTrendChart';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
@@ -37,9 +38,9 @@ export default function PatientDashboardPage() {
           setLatestPrediction(null);
         }
 
-        // Fetch prediction list
+        // Fetch prediction list (up to 10 historical assessments for trend tracking)
         try {
-          const listRes = await api.get('/predictions?limit=5');
+          const listRes = await api.get('/predictions?limit=10');
           setPredictions(listRes.data?.predictions || []);
         } catch (e) {
           setPredictions([]);
@@ -166,44 +167,14 @@ export default function PatientDashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-gray-900 tracking-tight">Risk Trend</h3>
-                <p className="text-xs text-warm-muted">Historical probability progression</p>
+                <p className="text-xs text-warm-muted">Historical assessment risk probability progression</p>
               </div>
-              <TrendingUp className="w-5 h-5 text-brand-800" />
+              <div className="w-9 h-9 rounded-xl bg-rose-50 text-brand-800 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5" />
+              </div>
             </div>
 
-            {predictions.length > 0 ? (
-              <div className="pt-4">
-                {/* Visual SVG Trend line */}
-                <div className="h-44 w-full flex items-end justify-between gap-4 pt-4 px-2 border-b border-warm-border">
-                  {predictions.slice(0, 6).reverse().map((p, idx) => {
-                    const prob = Math.round(Number(p.ensemble_probability) * 100);
-                    const heightPercent = Math.max(prob, 15);
-                    return (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-2 group">
-                        <span className="text-[10px] font-bold text-brand-900 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {prob}%
-                        </span>
-                        <div
-                          className="w-full max-w-[36px] bg-gradient-to-t from-brand-800 to-rose-400 rounded-t-lg transition-all group-hover:brightness-110"
-                          style={{ height: `${heightPercent}%` }}
-                        />
-                        <span className="text-[10px] text-warm-muted truncate w-full text-center">
-                          {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="h-44 flex flex-col items-center justify-center text-center p-6 bg-warm-bg/40 rounded-2xl border border-dashed border-warm-border">
-                <AlertCircle className="w-8 h-8 text-warm-muted mb-2" />
-                <p className="text-xs text-warm-muted">No assessment data recorded yet.</p>
-                <Link to="/patient/assessment" className="text-xs font-bold text-brand-800 hover:underline mt-2">
-                  Complete your first clinical assessment →
-                </Link>
-              </div>
-            )}
+            <RiskTrendChart predictions={predictions} loading={loading} />
           </div>
 
           {/* Quick Tips (Screen 11 right) */}
@@ -250,7 +221,7 @@ export default function PatientDashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-warm-border/50">
-                  {predictions.map((p) => (
+                  {predictions.slice(0, 5).map((p) => (
                     <tr key={p.id} className="hover:bg-warm-bg/40 transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-gray-900">
                         {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
