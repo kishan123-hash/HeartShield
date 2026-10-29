@@ -208,17 +208,16 @@ app.include_router(consultations_router)
 app.include_router(consultation_chat_router)
 app.include_router(doctor_assessments_router)
 
-@app.get("/")
-def root():
 
+@app.api_route("/", methods=["GET", "HEAD"])
+def root():
     return {
         "message": "HeartShield Backend is Running"
     }
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
-
     return {
         "status": "healthy"
     }
