@@ -132,6 +132,7 @@ def send_email(
     return success
 
 
+
 def send_security_alert_email(
     recipient_email: str,
     raw_token: str,
@@ -139,27 +140,48 @@ def send_security_alert_email(
     recipient_name: Optional[str] = None
 ) -> Tuple[bool, str]:
     """
-    Dispatches immediate Security Alert email when an account is locked after 6 failed attempts.
-    Conforms strictly to Section 2 specifications:
-      Subject: Security Alert: Suspicious Login Attempts Detected
-      Button: [YES, IT WAS ME]
-      Recovery link: verification token URL
-    Sends directly via authenticated SMTP (smtp.gmail.com) with Brevo fallback.
+    Sends account-lock security notification directly through Brevo API.
+    SMTP is not used for this notification.
     """
-    # Resolution: Point verification URL to the configured frontend origin (default: http://localhost:3000)
-    frontend_raw = getattr(settings, "FRONTEND_URL", None) or getattr(settings, "FRONTEND_ORIGIN", None) or "http://localhost:3000"
+
+    if not recipient_email:
+        return False, "Recipient email address is required."
+
+    if not getattr(settings, "BREVO_API_KEY", None):
+        logger.error("BREVO_API_KEY is not configured.")
+        return False, "BREVO_API_KEY is missing."
+
+    frontend_raw = (
+        getattr(settings, "FRONTEND_URL", None)
+        or getattr(settings, "FRONTEND_ORIGIN", None)
+        or "http://localhost:3000"
+    )
+
     frontend_url = frontend_raw.strip().rstrip("/")
-    if not frontend_url.startswith("http://") and not frontend_url.startswith("https://"):
+
+    if not frontend_url.startswith(("http://", "https://")):
         frontend_url = f"https://{frontend_url}"
-    elif frontend_url.startswith("http://") and not any(h in frontend_url for h in ("localhost", "127.0.0.1", "::1")):
+    elif frontend_url.startswith("http://") and not any(
+        host in frontend_url
+        for host in ("localhost", "127.0.0.1", "::1")
+    ):
         frontend_url = "https://" + frontend_url[7:]
 
     unlock_url = f"{frontend_url}/unlock-account?token={raw_token}"
-    reset_url = f"{frontend_url}/doctor/forgot-password" if role == "doctor" else f"{frontend_url}/forgot-password"
+
+    reset_url = (
+        f"{frontend_url}/doctor/forgot-password"
+        if role == "doctor"
+        else f"{frontend_url}/forgot-password"
+    )
 
     subject = "Security Alert: Suspicious Login Attempts Detected"
 
-    text_body = f"""Hello,
+    display_name = recipient_name or (
+        "Doctor" if role == "doctor" else "User"
+    )
+
+    text_body = f"""Hello {display_name},
 
 We detected multiple unsuccessful login attempts on your HeartShield account.
 
@@ -179,94 +201,90 @@ Regards,
 HeartShield Security Team
 """
 
-    display_name = recipient_name or ("Doctor" if role == "doctor" else "User")
-
     html_body = f"""<!DOCTYPE html>
 <html>
-  <head>
+<head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HeartShield Security Alert</title>
-  </head>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #faf7f5; margin: 0; padding: 24px; color: #1f2937;">
-    <div style="max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-      <div style="margin-bottom: 24px;">
-        <span style="font-size: 22px; font-weight: 800; color: #b91c1c; letter-spacing: -0.5px;">Heart</span>
-        <span style="font-size: 22px; font-weight: 800; color: #1e293b; letter-spacing: -0.5px;">Shield</span>
-        <span style="font-size: 11px; background: #fee2e2; color: #991b1b; font-weight: 700; padding: 4px 10px; border-radius: 9999px; margin-left: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Security Alert</span>
-      </div>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #faf7f5; margin: 0; padding: 24px; color: #1f2937;">
+    <div style="max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; padding: 32px;">
+        <div style="margin-bottom: 24px;">
+            <span style="font-size: 22px; font-weight: 800; color: #b91c1c;">Heart</span>
+            <span style="font-size: 22px; font-weight: 800; color: #1e293b;">Shield</span>
+            <span style="font-size: 11px; background: #fee2e2; color: #991b1b; font-weight: 700; padding: 4px 10px; border-radius: 9999px; margin-left: 8px;">SECURITY ALERT</span>
+        </div>
 
-      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">Hello,</p>
+        <p>Hello {display_name},</p>
 
-      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
-        We detected multiple unsuccessful login attempts on your HeartShield account.
-      </p>
+        <p>We detected multiple unsuccessful login attempts on your HeartShield account.</p>
 
-      <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px;">
-        <p style="margin: 0; font-size: 14px; color: #991b1b; font-weight: 600;">
-          For your security, login access has been temporarily blocked.
+        <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin-bottom: 20px;">
+            <p style="margin: 0; color: #991b1b; font-weight: 600;">
+                For your security, login access has been temporarily blocked.
+            </p>
+        </div>
+
+        <p>If these attempts were made by you, click below to verify your identity and restore your login access.</p>
+
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{unlock_url}" style="display: inline-block; background-color: #dc2626; color: #ffffff; font-weight: 700; text-decoration: none; padding: 12px 28px; border-radius: 8px;">
+                YES, IT WAS ME
+            </a>
+        </div>
+
+        <p style="font-size: 13px; color: #6b7280; word-break: break-all;">
+            If the button does not work, use this link:<br />
+            <a href="{unlock_url}" style="color: #dc2626;">{unlock_url}</a>
         </p>
-      </div>
 
-      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
-        If these attempts were made by you, please click the button below to verify your identity and restore your login access.
-      </p>
+        <p>
+            If you do not recognize these attempts, do not approve this request.
+            We recommend resetting your password immediately:
+            <br />
+            <a href="{reset_url}" style="color: #2563eb; font-weight: 600;">Reset Password</a>
+        </p>
 
-      <div style="text-align: center; margin: 28px 0;">
-        <a href="{unlock_url}" style="display: inline-block; background-color: #dc2626; color: #ffffff; font-weight: 700; font-size: 14px; text-decoration: none; padding: 12px 28px; border-radius: 8px; box-shadow: 0 2px 4px rgba(220, 38, 38, 0.25);">
-          YES, IT WAS ME
-        </a>
-      </div>
+        <p>Your account security is our priority.</p>
 
-      <p style="font-size: 13px; color: #6b7280; line-height: 1.5; margin: 0 0 20px 0; word-break: break-all;">
-        If the button above does not work, copy and paste this verification URL into your browser:<br/>
-        <a href="{unlock_url}" style="color: #dc2626; text-decoration: underline;">{unlock_url}</a>
-      </p>
+        <p>
+            Regards,<br />
+            HeartShield Security Team
+        </p>
 
-      <p style="font-size: 14px; line-height: 1.6; color: #4b5563; margin: 0 0 24px 0;">
-        If you do not recognize these attempts, do not approve this request. We strongly recommend resetting your password immediately:<br/>
-        <a href="{reset_url}" style="color: #2563eb; font-weight: 600; text-decoration: none;">Reset Password &rarr;</a>
-      </p>
+        <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 24px 0;" />
 
-      <p style="font-size: 14px; line-height: 1.6; margin: 0 0 8px 0;">
-        Your account security is our priority.
-      </p>
-
-      <p style="font-size: 14px; font-weight: 600; color: #374151; margin: 0;">
-        Regards,<br/>
-        HeartShield Security Team
-      </p>
-
-      <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 24px 0;" />
-      <p style="font-size: 11px; color: #9ca3af; margin: 0; text-align: center;">
-        This is an automated security transmission from HeartShield. Please do not reply directly to this email.
-      </p>
+        <p style="font-size: 11px; color: #9ca3af; text-align: center;">
+            This is an automated security transmission from HeartShield.
+            Please do not reply directly.
+        </p>
     </div>
-  </body>
+</body>
 </html>
 """
 
-    # 1. Primary delivery: Authenticated SMTP
-    success, detail = send_smtp_email(
-        recipient_email=recipient_email,
-        subject=subject,
-        text_body=text_body,
-        html_body=html_body,
-        recipient_name=display_name
-    )
-
-    # 2. Secondary fallback: Brevo API (if SMTP fails or is unconfigured)
-    if not success and getattr(settings, "BREVO_API_KEY", None):
-        logger.warning(f"SMTP delivery failed ({detail}). Attempting fallback to Brevo API...")
-        brevo_success, brevo_detail = send_brevo_email(
+    try:
+        success, detail = send_brevo_email(
             recipient_email=recipient_email,
             subject=subject,
             body=text_body,
             recipient_name=display_name
         )
-        if brevo_success:
-            return True, "Email accepted via Brevo API fallback"
-        else:
-            return False, f"SMTP error: {detail}; Brevo fallback error: {brevo_detail}"
 
-    return success, detail
+        if success:
+            logger.info(
+                "Account-lock notification accepted by Brevo API."
+            )
+            return True, "Email accepted via Brevo API"
+
+        logger.error(
+            "Brevo account-lock notification failed: %s", detail
+        )
+        return False, detail
+
+    except Exception:
+        logger.exception(
+            "Unexpected error sending account-lock notification via Brevo."
+        )
+        return False, "Unexpected Brevo email delivery error."
