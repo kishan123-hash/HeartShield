@@ -14,6 +14,7 @@ import RegisterPage from './pages/RegisterPage';
 import OtpVerificationPage from './pages/OtpVerificationPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import DoctorForgotPasswordPage from './pages/DoctorForgotPasswordPage';
+import UnlockAccountPage from './pages/UnlockAccountPage';
 
 // Patient Pages (Screens 11 - 15, Chatbot, Reports, Notifications, Feedback, Settings)
 import PatientDashboardPage from './pages/PatientDashboardPage';
@@ -54,6 +55,7 @@ export default function App() {
       <Route path="/verify-otp" element={<OtpVerificationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/doctor/forgot-password" element={<DoctorForgotPasswordPage />} />
+      <Route path="/unlock-account" element={<UnlockAccountPage />} />
 
       {/* Patient Protected Routes */}
       <Route element={<ProtectedRoute allowedRoles={['patient', 'doctor', 'admin']} />}>

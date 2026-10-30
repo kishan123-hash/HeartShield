@@ -20,7 +20,9 @@ class Settings(BaseSettings):
 
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
 
-    FRONTEND_ORIGIN: str = "http://localhost:5173"
+    FRONTEND_ORIGIN: str = "http://localhost:3000"
+
+    FRONTEND_URL: str | None = None
 
     UPLOAD_DIRECTORY: str = "reports_storage/medical_reports"
 

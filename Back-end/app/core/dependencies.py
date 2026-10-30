@@ -46,6 +46,14 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication token"
             )
+
+        # Disallow intermediate tokens (e.g., mfa_pending) from accessing protected APIs
+        if payload.get("purpose") == "mfa_pending":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incomplete authentication. MFA verification required."
+            )
+
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,6 +73,22 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive account"
         )
+
+    # Section 1 & 7: Check if account is blocked/locked due to failed login attempts
+    if getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is temporarily locked due to security alerts. Please verify your identity via email."
+        )
+
+    # Section 7: Enforce session invalidation on password change or security lockout
+    token_ver = payload.get("ver")
+    if token_ver is not None and user.token_version is not None:
+        if token_ver < user.token_version:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked due to account security events or password change. Please log in again."
+            )
 
     return user
 

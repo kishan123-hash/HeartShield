@@ -1,12 +1,14 @@
 from sqlalchemy import (
     Column,
-    BigInteger,
     String,
+    Integer,
     Boolean,
     Enum,
     DateTime,
+    Text,
     func
 )
+from sqlalchemy.dialects.mysql import BIGINT
 
 from app.database.database import Base
 
@@ -17,7 +19,7 @@ class User(Base):
 
 
     id = Column(
-        BigInteger,
+        BIGINT(unsigned=True),
         primary_key=True,
         index=True,
         autoincrement=True
@@ -76,6 +78,52 @@ class User(Base):
     is_verified = Column(
         Boolean,
         default=False
+    )
+
+
+    failed_login_attempts = Column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+
+    is_locked = Column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
+
+
+    locked_at = Column(
+        DateTime,
+        nullable=True
+    )
+
+
+    token_version = Column(
+        Integer,
+        default=1,
+        nullable=False
+    )
+
+
+    mfa_enabled = Column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
+
+
+    mfa_secret = Column(
+        String(255),
+        nullable=True
+    )
+
+
+    mfa_recovery_codes = Column(
+        Text,
+        nullable=True
     )
 
 

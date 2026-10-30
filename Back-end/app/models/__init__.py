@@ -21,3 +21,4 @@ from app.models.consultation_chat import (
     DoctorPatientAttachment
 )
 from app.models.doctor_password_reset import DoctorPasswordResetRequest
+from app.models.account_unlock_token import AccountUnlockToken

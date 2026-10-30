@@ -9,8 +9,8 @@ logger = logging.getLogger("migrations")
 
 def run_migrations():
     """
-    Safely creates new tables (doctor_patient_conversations, doctor_patient_messages, doctor_patient_attachments)
-    and validates existing schema without dropping or destroying existing data.
+    Safely creates new tables (account_unlock_tokens, etc.)
+    and validates existing schema, adding required security columns without dropping or destroying existing data.
     """
     logger.info("Running safe, non-destructive schema migrations...")
     try:
@@ -22,10 +22,34 @@ def run_migrations():
         tables = inspector.get_table_names()
         logger.info(f"Verified live database tables: {tables}")
 
-        # Check and update doctor_patient_relationships columns if needed
-        if "doctor_patient_relationships" in tables:
-            cols = [c["name"] for c in inspector.get_columns("doctor_patient_relationships")]
-            with engine.connect() as conn:
+        with engine.connect() as conn:
+            # Check and update users table for security fields
+            if "users" in tables:
+                user_cols = [c["name"] for c in inspector.get_columns("users")]
+
+                columns_to_add = [
+                    ("failed_login_attempts", "INT NOT NULL DEFAULT 0"),
+                    ("is_locked", "TINYINT(1) NOT NULL DEFAULT 0"),
+                    ("locked_at", "DATETIME NULL"),
+                    ("token_version", "INT NOT NULL DEFAULT 1"),
+                    ("mfa_enabled", "TINYINT(1) NOT NULL DEFAULT 0"),
+                    ("mfa_secret", "VARCHAR(255) NULL"),
+                    ("mfa_recovery_codes", "TEXT NULL")
+                ]
+
+                for col_name, col_def in columns_to_add:
+                    if col_name not in user_cols:
+                        logger.info(f"Adding '{col_name}' column to users table...")
+                        try:
+                            conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def};"))
+                            conn.commit()
+                            logger.info(f"Column '{col_name}' added successfully.")
+                        except Exception as col_err:
+                            logger.error(f"Error adding column '{col_name}': {col_err}")
+
+            # Check and update doctor_patient_relationships columns if needed
+            if "doctor_patient_relationships" in tables:
+                cols = [c["name"] for c in inspector.get_columns("doctor_patient_relationships")]
                 if "notes" not in cols:
                     logger.info("Adding 'notes' column to doctor_patient_relationships...")
                     conn.execute(text("ALTER TABLE doctor_patient_relationships ADD COLUMN notes TEXT NULL;"))
@@ -49,10 +73,9 @@ def run_migrations():
             "doctors",
             "assessments",
             "model_predictions",
-            "doctor_patient_relationships",
-            "doctor_patient_conversations",
-            "doctor_patient_messages",
-            "doctor_patient_attachments"
+            "account_unlock_tokens",
+            "activity_logs",
+            "otp_verifications"
         ]
         for req in required_tables:
             if req in tables:

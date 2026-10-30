@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional, List
 
 from pydantic import (
     BaseModel,
@@ -82,6 +83,10 @@ class LoginRequest(BaseModel):
 
     password: str
 
+    totp_code: str | None = None
+
+    recovery_code: str | None = None
+
 
 # ==========================================
 # USER RESPONSE
@@ -103,6 +108,12 @@ class UserResponse(BaseModel):
 
     is_verified: bool
 
+    failed_login_attempts: int | None = 0
+
+    is_locked: bool | None = False
+
+    mfa_enabled: bool | None = False
+
     class Config:
         from_attributes = True
 
@@ -113,11 +124,17 @@ class UserResponse(BaseModel):
 
 class LoginResponse(BaseModel):
 
-    access_token: str
+    access_token: str | None = None
 
-    token_type: str
+    token_type: str | None = "bearer"
 
-    user: UserResponse
+    user: UserResponse | None = None
+
+    mfa_required: bool | None = False
+
+    mfa_token: str | None = None
+
+    message: str | None = None
 
 
 # ==========================================
@@ -317,3 +334,90 @@ class RegistrationStatusResponse(BaseModel):
     role: str
 
     message: str
+
+
+# ==========================================
+# ACCOUNT UNLOCK SCHEMAS
+# ==========================================
+
+class UnlockAccountVerifyResponse(BaseModel):
+
+    valid: bool
+
+    message: str
+
+
+class UnlockAccountConfirmRequest(BaseModel):
+
+    token: str = Field(
+        min_length=10,
+        max_length=255
+    )
+
+    password: str = Field(
+        min_length=1,
+        max_length=128
+    )
+
+
+class UnlockAccountConfirmResponse(BaseModel):
+
+    message: str
+
+
+# ==========================================
+# MULTI-FACTOR AUTHENTICATION (MFA) SCHEMAS
+# ==========================================
+
+class MFASetupResponse(BaseModel):
+
+    secret: str
+
+    otpauth_url: str
+
+
+class MFAEnableRequest(BaseModel):
+
+    secret: str = Field(
+        min_length=16,
+        max_length=64
+    )
+
+    password: str = Field(
+        min_length=1,
+        max_length=128
+    )
+
+    code: str = Field(
+        min_length=6,
+        max_length=6
+    )
+
+
+class MFAEnableResponse(BaseModel):
+
+    message: str
+
+    recovery_codes: List[str]
+
+
+class MFADisableRequest(BaseModel):
+
+    password: str = Field(
+        min_length=1,
+        max_length=128
+    )
+
+    code: str = Field(
+        min_length=6,
+        max_length=6
+    )
+
+
+class MFAVerifyRequest(BaseModel):
+
+    mfa_token: str
+
+    totp_code: str | None = None
+
+    recovery_code: str | None = None

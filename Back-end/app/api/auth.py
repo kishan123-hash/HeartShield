@@ -9,9 +9,13 @@ from fastapi import (
 )
 from datetime import datetime, timedelta, timezone
 import secrets
+import hashlib
+import json
+import pyotp
 from sqlalchemy.orm import Session
 from app.core.token_blocklist import token_blocklist
-from app.core.security_logger import security_logger
+from app.core.security_logger import security_logger, record_security_audit
+from app.core.rate_limiter import get_trusted_client_ip, ip_failed_login_tracker
 
 from app.database.database import get_db
 
@@ -20,6 +24,7 @@ from app.models.patient import Patient
 from app.models.doctor import Doctor
 from app.models.otp_verification import OTPVerification
 from app.models.doctor_password_reset import DoctorPasswordResetRequest
+from app.models.account_unlock_token import AccountUnlockToken
 
 from app.schemas.auth import (
     PatientRegisterRequest,
@@ -41,7 +46,15 @@ from app.schemas.auth import (
     DoctorPasswordResetSubmitRequest,
     DoctorPasswordResetStatusResponse,
     DoctorPasswordResetSendOTPRequest,
-    DoctorPasswordResetCompleteRequest
+    DoctorPasswordResetCompleteRequest,
+    UnlockAccountVerifyResponse,
+    UnlockAccountConfirmRequest,
+    UnlockAccountConfirmResponse,
+    MFASetupResponse,
+    MFAEnableRequest,
+    MFAEnableResponse,
+    MFADisableRequest,
+    MFAVerifyRequest
 )
 
 from app.core.security import (
@@ -53,11 +66,40 @@ from app.core.dependencies import (
     get_current_user
 )
 
-from app.services.email_service import send_email
+from app.services.email_service import send_email, send_security_alert_email
 from app.services.brevo_service import dispatch_channel_otp, format_phone_e164
 import logging
 
 logger = logging.getLogger("auth")
+
+
+def verify_user_mfa(user: User, totp_code: str | None, recovery_code: str | None, db: Session) -> bool:
+    """
+    Verifies user MFA via TOTP code or single-use recovery code.
+    """
+    if not user.mfa_enabled or not user.mfa_secret:
+        return True
+
+    # 1. Check TOTP Code
+    if totp_code:
+        totp = pyotp.TOTP(user.mfa_secret)
+        if totp.verify(totp_code.strip(), valid_window=1):
+            return True
+
+    # 2. Check Recovery Code
+    if recovery_code and user.mfa_recovery_codes:
+        code_hash = hashlib.sha256(recovery_code.strip().encode('utf-8')).hexdigest()
+        try:
+            stored_hashes = json.loads(user.mfa_recovery_codes)
+            if isinstance(stored_hashes, list) and code_hash in stored_hashes:
+                stored_hashes.remove(code_hash)
+                user.mfa_recovery_codes = json.dumps(stored_hashes)
+                db.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error checking MFA recovery code: {e}")
+
+    return False
 
 
 def dispatch_otp(
@@ -321,76 +363,202 @@ def login(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    client_ip = get_trusted_client_ip(request)
 
-    user = db.query(User).filter(
-        User.email == data.email
-    ).first()
-
-    if not user:
-        security_logger.log_auth_failure(client_ip, data.email, "User not found")
+    # Section 4: IP-based rate limiting check for aggressive authentication traffic
+    is_blocked, retry_after = ip_failed_login_tracker.is_ip_blocked(client_ip)
+    if is_blocked:
+        security_logger.log_suspicious_ip(client_ip, f"IP temporarily restricted due to repeated failures. Retry after {retry_after}s")
+        record_security_audit(db, "IP_RATE_LIMITED", client_ip, status="BLOCKED", details=f"Retry after {retry_after}s", level="WARNING")
         raise HTTPException(
-            status_code=
-            status.HTTP_401_UNAUTHORIZED,
-            detail=
-            "Invalid email or password"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed login attempts from this network. Please wait {retry_after} seconds before retrying."
         )
 
+    # Section 1 & 10: Atomic row-level lock directly on query to serialize concurrent login attempts
+    user = db.query(User).filter(
+        User.email == data.email.strip().lower()
+    ).with_for_update().first()
+
+    if not user:
+        ip_failed_login_tracker.record_failure(client_ip)
+        security_logger.log_auth_failure(client_ip, data.email, "User not found")
+        record_security_audit(db, "LOGIN_FAILED", client_ip, status="FAILED", details="User not found", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+
+    # Section 1 & 5: Check if account is locked/blocked
+    if getattr(user, "is_locked", False):
+        security_logger.log_auth_failure(client_ip, data.email, "Account locked/blocked", role=user.role)
+        record_security_audit(db, "LOGIN_DENIED_LOCKED", client_ip, user_id=user.id, role=user.role, status="BLOCKED", details="Account is blocked", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is temporarily blocked due to multiple failed login attempts. A security verification link has been sent to your registered email address."
+        )
+
+    # Verify Password
     if not verify_password(
         data.password,
         user.password_hash
     ):
-        security_logger.log_auth_failure(client_ip, data.email, "Invalid password")
-        raise HTTPException(
-            status_code=
-            status.HTTP_401_UNAUTHORIZED,
-            detail=
-            "Invalid email or password"
-        )
+        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        current_attempts = user.failed_login_attempts
+        ip_failed_login_tracker.record_failure(client_ip)
 
+        # 6th consecutive failed attempt: Block account immediately
+        if current_attempts >= 6:
+            user.is_locked = True
+            user.locked_at = datetime.utcnow()
+            user.token_version = (user.token_version or 1) + 1  # Invalidate active sessions immediately
+
+            # Generate single-use secure random verification token (SHA-256 stored)
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            expires_at = datetime.utcnow() + timedelta(minutes=20)
+
+            # Invalidate prior pending unlock tokens for this account
+            db.query(AccountUnlockToken).filter(
+                AccountUnlockToken.user_id == user.id,
+                AccountUnlockToken.is_used == False
+            ).update({"is_used": True}, synchronize_session=False)
+
+            unlock_token = AccountUnlockToken(
+                user_id=user.id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+                is_used=False
+            )
+            db.add(unlock_token)
+            db.commit()
+
+            # Section 2: Send Security Alert Email Notification
+            email_sent, email_msg = send_security_alert_email(
+                recipient_email=user.email,
+                raw_token=raw_token,
+                role=user.role,
+                recipient_name=user.full_name
+            )
+
+            # Section 6: Audit Logging
+            security_logger.log_account_locked(client_ip, user.id, user.role, current_attempts)
+            security_logger.log_session_invalidation(client_ip, user.id, "Account blocked due to 6 failed attempts")
+            record_security_audit(
+                db,
+                "ACCOUNT_LOCKED",
+                client_ip,
+                user_id=user.id,
+                role=user.role,
+                status="BLOCKED",
+                details=f"Consecutive failed attempts: {current_attempts}",
+                level="WARNING"
+            )
+
+            # Section 2 & 6: Ensure exactly one security email audit record based on confirmed delivery
+            masked_email = f"{user.email[:2]}***@{user.email.split('@')[1]}" if "@" in user.email else user.email
+            if email_sent:
+                record_security_audit(
+                    db,
+                    "SECURITY_EMAIL_SENT",
+                    client_ip,
+                    user_id=user.id,
+                    role=user.role,
+                    status="SENT",
+                    details=f"Unlock notification dispatched to {masked_email} ({email_msg})",
+                    level="INFO"
+                )
+            else:
+                record_security_audit(
+                    db,
+                    "SECURITY_EMAIL_FAILED",
+                    client_ip,
+                    user_id=user.id,
+                    role=user.role,
+                    status="FAILED",
+                    details=f"Failed to dispatch unlock notification to {masked_email}: {email_msg}",
+                    level="ERROR"
+                )
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account has been blocked due to multiple failed login attempts. A security verification email has been sent to your registered email address."
+            )
+        else:
+            db.commit()
+            security_logger.log_auth_failure(client_ip, data.email, f"Invalid password (attempt {current_attempts}/5)", role=user.role)
+            record_security_audit(db, "LOGIN_FAILED", client_ip, user_id=user.id, role=user.role, status="FAILED", details=f"Attempt {current_attempts}", level="WARNING")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+
+    # Password is correct: Verify user active & registration status
     if user.role == "patient" and not user.is_verified:
-        security_logger.log_auth_failure(client_ip, data.email, "Account unverified")
+        security_logger.log_auth_failure(client_ip, data.email, "Account unverified", role=user.role)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Please verify your OTP to complete registration before logging in."
         )
 
     if not user.is_active:
-        security_logger.log_auth_failure(client_ip, data.email, "Account inactive")
+        security_logger.log_auth_failure(client_ip, data.email, "Account inactive", role=user.role)
         raise HTTPException(
-            status_code=
-            status.HTTP_403_FORBIDDEN,
-            detail=
-            "Account is inactive"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is inactive"
         )
 
+    # Reset failed login attempt counter upon successful password validation
+    if user.failed_login_attempts > 0:
+        user.failed_login_attempts = 0
+        db.commit()
 
+    ip_failed_login_tracker.record_success(client_ip)
+
+    # Section 8: Multi-Factor Authentication (MFA) check
+    if getattr(user, "mfa_enabled", False):
+        if not data.totp_code and not data.recovery_code:
+            # Issue temporary 5-minute mfa_pending token
+            mfa_pending_token = create_access_token(
+                data={
+                    "sub": str(user.id),
+                    "role": user.role,
+                    "purpose": "mfa_pending"
+                },
+                expires_minutes=5
+            )
+            record_security_audit(db, "MFA_REQUIRED", client_ip, user_id=user.id, role=user.role, status="CHALLENGE", details="MFA code required")
+            return {
+                "mfa_required": True,
+                "mfa_token": mfa_pending_token,
+                "message": "Two-factor authentication code required."
+            }
+
+        if not verify_user_mfa(user, data.totp_code, data.recovery_code, db):
+            security_logger.log_auth_failure(client_ip, data.email, "Invalid MFA code", role=user.role)
+            record_security_audit(db, "MFA_FAILED", client_ip, user_id=user.id, role=user.role, status="FAILED", details="Invalid code", level="WARNING")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid two-factor authentication code or recovery code."
+            )
+
+    # Section 7: Issue new access token with session rotation (jti, iat, ver)
     access_token = create_access_token(
-
         data={
-
-            "sub":
-            str(user.id),
-
-            "role":
-            user.role
-
+            "sub": str(user.id),
+            "role": user.role,
+            "ver": user.token_version or 1
         }
-
     )
 
+    security_logger.log_login_success(client_ip, user.id, user.role)
+    record_security_audit(db, "LOGIN_SUCCESS", client_ip, user_id=user.id, role=user.role, status="SUCCESS", details=f"Logged in as {user.role}")
 
     return {
-
-        "access_token":
-        access_token,
-
-        "token_type":
-        "bearer",
-
-        "user":
-        user
-
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user,
+        "mfa_required": False
     }
 @router.get(
     "/me",
@@ -988,13 +1156,29 @@ def reset_password(
 
     target_user.password_hash = hash_password(data.new_password)
 
+    # Section 3, 5 & 7: Unlock account, reset failed attempts, and invalidate all existing active sessions
+    target_user.is_locked = False
+    target_user.failed_login_attempts = 0
+    target_user.locked_at = None
+    target_user.token_version = (target_user.token_version or 1) + 1
+
     # Invalidate all remaining password reset OTPs for this user
     db.query(OTPVerification).filter(
         OTPVerification.user_id == target_user.id,
         OTPVerification.purpose == "password_reset"
     ).update({"is_used": True}, synchronize_session=False)
 
+    # Invalidate pending account unlock tokens
+    db.query(AccountUnlockToken).filter(
+        AccountUnlockToken.user_id == target_user.id,
+        AccountUnlockToken.is_used == False
+    ).update({"is_used": True}, synchronize_session=False)
+
     db.commit()
+
+    security_logger.log_password_reset("system", target_user.id, target_user.role)
+    security_logger.log_session_invalidation("system", target_user.id, "Patient password reset completed; all active sessions revoked")
+    record_security_audit(db, "PASSWORD_RESET", "system", user_id=target_user.id, role=target_user.role, status="SUCCESS", details="Patient password reset; prior sessions revoked and account unlocked")
 
     return {
         "message": "Password reset successfully. You may now sign in."
@@ -1266,14 +1450,352 @@ def doctor_forgot_password_reset(
     otp_record.is_used = True
     latest_req.status = "completed"
 
+    # Section 3, 5 & 7: Unlock account, reset failed attempts, and invalidate active sessions for Doctor
+    user.is_locked = False
+    user.failed_login_attempts = 0
+    user.locked_at = None
+    user.token_version = (user.token_version or 1) + 1
+
     # Invalidate all remaining doctor reset OTPs
     db.query(OTPVerification).filter(
         OTPVerification.user_id == user.id,
         OTPVerification.purpose == "doctor_password_reset"
     ).update({"is_used": True}, synchronize_session=False)
 
+    # Invalidate pending account unlock tokens
+    db.query(AccountUnlockToken).filter(
+        AccountUnlockToken.user_id == user.id,
+        AccountUnlockToken.is_used == False
+    ).update({"is_used": True}, synchronize_session=False)
+
     db.commit()
+
+    security_logger.log_password_reset("system", user.id, user.role)
+    security_logger.log_session_invalidation("system", user.id, "Doctor password reset completed; all active sessions revoked")
+    record_security_audit(db, "PASSWORD_RESET", "system", user_id=user.id, role=user.role, status="SUCCESS", details="Doctor password reset; prior sessions revoked and account unlocked")
 
     return {
         "message": "Doctor password has been reset successfully. You may now sign in."
+    }
+
+
+# ==========================================
+# ACCOUNT UNLOCK & IDENTITY VERIFICATION
+# ==========================================
+
+@router.get(
+    "/unlock/verify-token",
+    response_model=UnlockAccountVerifyResponse
+)
+def verify_unlock_token(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Validates an account unlock token without revealing sensitive account info.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    if not token or len(token.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification link format."
+        )
+
+    token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+
+    token_record = (
+        db.query(AccountUnlockToken)
+        .filter(AccountUnlockToken.token_hash == token_hash)
+        .first()
+    )
+
+    if not token_record or token_record.is_used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or has already been used."
+        )
+
+    if datetime.utcnow() > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link has expired. Please initiate password recovery to restore access."
+        )
+
+    record_security_audit(db, "VERIFICATION_LINK_REQUESTED", client_ip, user_id=token_record.user_id, status="SUCCESS", details="Token validation successful")
+
+    return {
+        "valid": True,
+        "message": "Verification token is valid. Please enter your password to confirm identity and unlock access."
+    }
+
+
+@router.post(
+    "/unlock/confirm",
+    response_model=UnlockAccountConfirmResponse
+)
+def confirm_unlock_account(
+    data: UnlockAccountConfirmRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Unlocks an account after token validation and successful password verification.
+    Resets failed login attempts to 0 and invalidates old sessions.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    token_hash = hashlib.sha256(data.token.strip().encode("utf-8")).hexdigest()
+
+    token_record = (
+        db.query(AccountUnlockToken)
+        .filter(AccountUnlockToken.token_hash == token_hash)
+        .with_for_update()
+        .first()
+    )
+
+    if not token_record:
+        record_security_audit(db, "UNLOCK_FAILED", client_ip, status="FAILED", details="Invalid unlock token", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or has already been used."
+        )
+
+    if datetime.utcnow() > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        record_security_audit(db, "UNLOCK_FAILED", client_ip, user_id=token_record.user_id, status="FAILED", details="Expired unlock token", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link has expired. Please initiate password recovery to restore access."
+        )
+
+    if token_record.is_used:
+        record_security_audit(db, "UNLOCK_FAILED", client_ip, status="FAILED", details="Reused unlock token", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or has already been used."
+        )
+
+    user = db.query(User).filter(User.id == token_record.user_id).with_for_update().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account associated with this verification request was not found."
+        )
+
+    # Validate identity via re-entering current password
+    if not verify_password(data.password, user.password_hash):
+        record_security_audit(db, "UNLOCK_FAILED", client_ip, user_id=user.id, role=user.role, status="FAILED", details="Incorrect password provided during identity unlock", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification failed: incorrect password."
+        )
+
+    # Unlock account and restore normal status
+    user.is_locked = False
+    user.failed_login_attempts = 0
+    user.locked_at = None
+    user.token_version = (user.token_version or 1) + 1  # Invalidate prior sessions
+    token_record.is_used = True
+
+    # Invalidate any other unlock tokens for this user
+    db.query(AccountUnlockToken).filter(
+        AccountUnlockToken.user_id == user.id,
+        AccountUnlockToken.is_used == False
+    ).update({"is_used": True}, synchronize_session=False)
+
+    db.commit()
+
+    security_logger.log_account_unlocked(client_ip, user.id, user.role, method="email_token_with_password")
+    record_security_audit(db, "ACCOUNT_UNLOCKED", client_ip, user_id=user.id, role=user.role, status="SUCCESS", details="Account unlocked after successful identity verification")
+
+    return {
+        "message": "Account has been successfully unlocked. You may now log in with your credentials."
+    }
+
+
+# ==========================================
+# MULTI-FACTOR AUTHENTICATION (MFA)
+# ==========================================
+
+@router.post(
+    "/mfa/setup",
+    response_model=MFASetupResponse
+)
+def setup_mfa(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generates a new TOTP secret and provisioning URI for MFA enrollment.
+    """
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    otpauth_url = totp.provisioning_uri(
+        name=current_user.email,
+        issuer_name="HeartShield"
+    )
+
+    return {
+        "secret": secret,
+        "otpauth_url": otpauth_url
+    }
+
+
+@router.post(
+    "/mfa/enable",
+    response_model=MFAEnableResponse
+)
+def enable_mfa(
+    data: MFAEnableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Enables TOTP-based MFA for an account after verifying current password and a valid TOTP code.
+    Generates 8 single-use recovery codes stored as SHA-256 hashes.
+    """
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid current password."
+        )
+
+    totp = pyotp.TOTP(data.secret)
+    if not totp.verify(data.code.strip(), valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid authenticator code. Please check the code in your app."
+        )
+
+    # Generate 8 single-use backup recovery codes
+    plain_recovery_codes = [secrets.token_hex(5) for _ in range(8)]
+    hashed_recovery_codes = [
+        hashlib.sha256(code.encode("utf-8")).hexdigest()
+        for code in plain_recovery_codes
+    ]
+
+    current_user.mfa_enabled = True
+    current_user.mfa_secret = data.secret
+    current_user.mfa_recovery_codes = json.dumps(hashed_recovery_codes)
+    db.commit()
+
+    record_security_audit(db, "MFA_ENABLED", "internal", user_id=current_user.id, role=current_user.role, status="SUCCESS", details="MFA successfully enabled")
+
+    return {
+        "message": "Two-factor authentication has been successfully enabled.",
+        "recovery_codes": plain_recovery_codes
+    }
+
+
+@router.post(
+    "/mfa/disable"
+)
+def disable_mfa(
+    data: MFADisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Disables MFA after verifying current password and valid TOTP code.
+    """
+    if not current_user.mfa_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Two-factor authentication is not currently enabled for this account."
+        )
+
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid current password."
+        )
+
+    totp = pyotp.TOTP(current_user.mfa_secret)
+    if not totp.verify(data.code.strip(), valid_window=1):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid authenticator code."
+        )
+
+    current_user.mfa_enabled = False
+    current_user.mfa_secret = None
+    current_user.mfa_recovery_codes = None
+    db.commit()
+
+    record_security_audit(db, "MFA_DISABLED", "internal", user_id=current_user.id, role=current_user.role, status="SUCCESS", details="MFA disabled")
+
+    return {
+        "message": "Two-factor authentication has been disabled."
+    }
+
+
+@router.post(
+    "/mfa/verify",
+    response_model=LoginResponse
+)
+def verify_mfa_login(
+    data: MFAVerifyRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Validates MFA challenge during two-step login flow using either TOTP code or backup recovery code.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    try:
+        payload = jwt.decode(
+            data.mfa_token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+        if payload.get("purpose") != "mfa_pending":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid MFA token purpose."
+            )
+        user_id = int(payload.get("sub"))
+    except (JWTError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired MFA session. Please log in again."
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.is_active or user.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is inactive, blocked, or not found."
+        )
+
+    if not verify_user_mfa(user, data.totp_code, data.recovery_code, db):
+        security_logger.log_auth_failure(client_ip, user.email, "Invalid MFA code during two-step verification", role=user.role)
+        record_security_audit(db, "MFA_FAILED", client_ip, user_id=user.id, role=user.role, status="FAILED", details="Two-step MFA verification failure", level="WARNING")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid two-factor authentication code or recovery code."
+        )
+
+    # Issue complete access token
+    access_token = create_access_token(
+        data={
+            "sub": str(user.id),
+            "role": user.role,
+            "ver": user.token_version or 1
+        }
+    )
+
+    security_logger.log_login_success(client_ip, user.id, user.role)
+    record_security_audit(db, "LOGIN_SUCCESS", client_ip, user_id=user.id, role=user.role, status="SUCCESS", details="Two-step MFA login completed")
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user,
+        "mfa_required": False
     }

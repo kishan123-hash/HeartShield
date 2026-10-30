@@ -59,8 +59,9 @@ from app.api.consultations import router as consultations_router
 from app.api.consultation_chat import router as consultation_chat_router
 from app.api.doctor_assessments import router as doctor_assessments_router
 from app.core.security_headers import SecurityHeadersMiddleware
-from app.core.rate_limiter import rate_limiter
+from app.core.rate_limiter import rate_limiter, get_trusted_client_ip
 from app.core.security_logger import security_logger
+from app.database.migrations import run_migrations
 import uuid
 from fastapi.responses import JSONResponse
 from fastapi import Request
@@ -75,36 +76,49 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Startup event to ensure schema and security columns are verified
+@app.on_event("startup")
+def startup_event():
+    try:
+        run_migrations()
+    except Exception as e:
+        logger.error(f"Startup migration check notice: {e}")
+
 # Layer 1: Security Headers
 app.add_middleware(SecurityHeadersMiddleware)
 
 def get_client_ip(request: Request) -> str:
-    """Safely extracts client IP address behind reverse proxies (Render, Cloudflare, etc.)."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
-        if parts:
-            return parts[0]
-    return request.client.host if request.client else "127.0.0.1"
+    """Safely extracts client IP address behind reverse proxies."""
+    return get_trusted_client_ip(request)
 
 # Layer 2: Auth Rate Limiter Middleware
 @app.middleware("http")
 async def rate_limit_auth_middleware(request: Request, call_next):
     path = request.url.path
     if request.method != "OPTIONS":
-        auth_routes = [
-            "/api/v1/auth/login",
-            "/api/v1/auth/register",
-            "/api/v1/auth/send-otp",
-            "/api/v1/auth/verify-otp",
-            "/api/v1/auth/forgot-password",
-            "/api/v1/auth/reset-password",
-            "/api/v1/auth/doctor/forgot-password"
-        ]
-        if any(route in path for route in auth_routes):
-            client_ip = get_client_ip(request)
-            key = f"auth:{path}:{client_ip}"
-            max_reqs = 15 if ("reset-password" in path or "forgot-password" in path) else 25
+        # Section 3: Appropriately scoped rate-limit buckets preventing cross-action exhaustion
+        route_bucket_map = {
+            "/api/v1/auth/login": ("login", 35),
+            "/api/v1/auth/register": ("register", 25),
+            "/api/v1/auth/send-otp": ("otp_request", 20),
+            "/api/v1/auth/verify-otp": ("otp_verify", 25),
+            "/api/v1/auth/forgot-password": ("password_recovery", 20),
+            "/api/v1/auth/reset-password": ("password_recovery", 20),
+            "/api/v1/auth/doctor/forgot-password": ("password_recovery", 20),
+            "/api/v1/auth/unlock": ("account_unlock", 25),
+            "/api/v1/auth/mfa": ("mfa", 25)
+        }
+        matched_bucket = None
+        max_reqs = 30
+        for route_prefix, (scope, limit) in route_bucket_map.items():
+            if route_prefix in path:
+                matched_bucket = scope
+                max_reqs = limit
+                break
+
+        if matched_bucket:
+            client_ip = get_trusted_client_ip(request)
+            key = f"auth:{matched_bucket}:{client_ip}"
             allowed, retry_after = rate_limiter.is_allowed(key, max_requests=max_reqs, window_seconds=60)
             if not allowed:
                 security_logger.log_rate_limit(client_ip, path)
