@@ -50,6 +50,12 @@ from app.schemas.auth import (
     UnlockAccountVerifyResponse,
     UnlockAccountConfirmRequest,
     UnlockAccountConfirmResponse,
+    UnlockAccountRequestOTPRequest,
+    UnlockAccountRequestOTPResponse,
+    UnlockAccountResetPasswordRequest,
+    UnlockAccountResetPasswordResponse,
+    ResendSecurityAlertRequest,
+    ResendSecurityAlertResponse,
     MFASetupResponse,
     MFAEnableRequest,
     MFAEnableResponse,
@@ -66,8 +72,17 @@ from app.core.dependencies import (
     get_current_user
 )
 
-from app.services.email_service import send_email, send_security_alert_email
-from app.services.brevo_service import dispatch_channel_otp, format_phone_e164
+from app.services.email_service import (
+    send_email,
+    send_security_alert_email,
+    send_password_change_confirmation_email
+)
+from app.services.brevo_service import (
+    dispatch_channel_otp,
+    format_phone_e164,
+    mask_email
+)
+from app.core.rate_limiter import check_rate_limit
 import logging
 
 logger = logging.getLogger("auth")
@@ -438,7 +453,10 @@ def login(
                 recipient_email=user.email,
                 raw_token=raw_token,
                 role=user.role,
-                recipient_name=user.full_name
+                recipient_name=user.full_name,
+                ip_address=client_ip,
+                timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                activity_type="Multiple Failed Login Attempts"
             )
 
             # Section 6: Audit Logging
@@ -458,6 +476,7 @@ def login(
             # Section 2 & 6: Ensure exactly one security email audit record based on confirmed delivery
             masked_email = f"{user.email[:2]}***@{user.email.split('@')[1]}" if "@" in user.email else user.email
             if email_sent:
+                security_logger.log_security_email_accepted(client_ip, user.id, user.role, user.email, email_msg)
                 record_security_audit(
                     db,
                     "SECURITY_EMAIL_SENT",
@@ -465,7 +484,7 @@ def login(
                     user_id=user.id,
                     role=user.role,
                     status="SENT",
-                    details=f"Unlock notification dispatched to {masked_email} ({email_msg})",
+                    details=f"Unlock notification accepted by Brevo for {masked_email} ({email_msg})",
                     level="INFO"
                 )
             else:
@@ -482,7 +501,7 @@ def login(
 
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account has been blocked due to multiple failed login attempts. A security verification email has been sent to your registered email address."
+                detail="Account has been blocked due to multiple failed login attempts. A security verification link has been dispatched to your registered email address. Please check your inbox and spam folders."
             )
         else:
             db.commit()
@@ -1176,6 +1195,11 @@ def reset_password(
 
     db.commit()
 
+    try:
+        send_password_change_confirmation_email(target_user.email, target_user.full_name)
+    except Exception as e:
+        logger.error(f"Failed to dispatch password change confirmation email: {e}")
+
     security_logger.log_password_reset("system", target_user.id, target_user.role)
     security_logger.log_session_invalidation("system", target_user.id, "Patient password reset completed; all active sessions revoked")
     record_security_audit(db, "PASSWORD_RESET", "system", user_id=target_user.id, role=target_user.role, status="SUCCESS", details="Patient password reset; prior sessions revoked and account unlocked")
@@ -1470,6 +1494,11 @@ def doctor_forgot_password_reset(
 
     db.commit()
 
+    try:
+        send_password_change_confirmation_email(user.email, user.full_name)
+    except Exception as e:
+        logger.error(f"Failed to dispatch password change confirmation email: {e}")
+
     security_logger.log_password_reset("system", user.id, user.role)
     security_logger.log_session_invalidation("system", user.id, "Doctor password reset completed; all active sessions revoked")
     record_security_audit(db, "PASSWORD_RESET", "system", user_id=user.id, role=user.role, status="SUCCESS", details="Doctor password reset; prior sessions revoked and account unlocked")
@@ -1480,7 +1509,7 @@ def doctor_forgot_password_reset(
 
 
 # ==========================================
-# ACCOUNT UNLOCK & IDENTITY VERIFICATION
+# ACCOUNT UNLOCK & IDENTITY RECOVERY
 # ==========================================
 
 @router.get(
@@ -1493,7 +1522,7 @@ def verify_unlock_token(
     db: Session = Depends(get_db)
 ):
     """
-    Validates an account unlock token without revealing sensitive account info.
+    Validates an account unlock token and returns basic user identity for verification display.
     """
     client_ip = get_trusted_client_ip(request)
 
@@ -1525,11 +1554,21 @@ def verify_unlock_token(
             detail="Verification link has expired. Please initiate password recovery to restore access."
         )
 
+    user = db.query(User).filter(User.id == token_record.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account associated with this verification request was not found."
+        )
+
     record_security_audit(db, "VERIFICATION_LINK_REQUESTED", client_ip, user_id=token_record.user_id, status="SUCCESS", details="Token validation successful")
 
     return {
         "valid": True,
-        "message": "Verification token is valid. Please enter your password to confirm identity and unlock access."
+        "message": "Verification token is valid. Please enter your password to confirm identity or choose OTP recovery.",
+        "email": user.email,
+        "masked_email": mask_email(user.email),
+        "role": user.role
     }
 
 
@@ -1543,10 +1582,13 @@ def confirm_unlock_account(
     db: Session = Depends(get_db)
 ):
     """
-    Unlocks an account after token validation and successful password verification.
-    Resets failed login attempts to 0 and invalidates old sessions.
+    Option 1: YES, IT WAS ME -> Unlocks account after token validation and successful current password verification.
+    Verifies that account is locked, resets failed login attempts to 0, and invalidates old sessions.
     """
     client_ip = get_trusted_client_ip(request)
+
+    # Rate limit identity verification password attempts
+    check_rate_limit(request, max_requests=10, window_seconds=60, prefix="unlock_confirm")
 
     token_hash = hashlib.sha256(data.token.strip().encode("utf-8")).hexdigest()
 
@@ -1596,6 +1638,13 @@ def confirm_unlock_account(
             detail="Verification failed: incorrect password."
         )
 
+    # Verify that the account is currently locked
+    if not getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is not locked."
+        )
+
     # Unlock account and restore normal status
     user.is_locked = False
     user.failed_login_attempts = 0
@@ -1617,6 +1666,481 @@ def confirm_unlock_account(
     return {
         "message": "Account has been successfully unlocked. You may now log in with your credentials."
     }
+
+
+@router.post(
+    "/unlock/request-otp",
+    response_model=UnlockAccountRequestOTPResponse
+)
+def request_unlock_otp(
+    data: UnlockAccountRequestOTPRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Option 2 (Step 1): NO, IT WAS NOT ME -> Dispatches a 6-digit OTP to the registered email
+    associated with a valid recovery token.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    check_rate_limit(request, max_requests=5, window_seconds=60, prefix="unlock_otp_req")
+
+    token_hash = hashlib.sha256(data.token.strip().encode("utf-8")).hexdigest()
+    token_record = (
+        db.query(AccountUnlockToken)
+        .filter(AccountUnlockToken.token_hash == token_hash)
+        .first()
+    )
+
+    if not token_record or token_record.is_used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or has already been used."
+        )
+
+    if datetime.utcnow() > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link has expired. Please initiate password recovery to restore access."
+        )
+
+    user = db.query(User).filter(User.id == token_record.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account associated with this verification request was not found."
+        )
+
+    if not getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is not locked."
+        )
+
+    # Cooldown check for OTP dispatch
+    last_otp = (
+        db.query(OTPVerification)
+        .filter(
+            OTPVerification.user_id == user.id,
+            OTPVerification.purpose == "password_reset"
+        )
+        .order_by(OTPVerification.created_at.desc())
+        .first()
+    )
+
+    if last_otp and last_otp.created_at:
+        elapsed = (datetime.utcnow() - last_otp.created_at).total_seconds()
+        if elapsed < 60:
+            remaining = int(60 - elapsed)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {remaining} seconds before requesting a new OTP code."
+            )
+
+    sent, msg = dispatch_otp(
+        db=db,
+        user=user,
+        email=user.email,
+        phone=user.phone,
+        purpose="password_reset",
+        channel="email"
+    )
+
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to dispatch recovery OTP: {msg}"
+        )
+
+    masked = mask_email(user.email)
+    record_security_audit(
+        db,
+        "RECOVERY_OTP_SENT",
+        client_ip,
+        user_id=user.id,
+        role=user.role,
+        status="SENT",
+        details=f"Recovery OTP dispatched to {masked}"
+    )
+
+    return {
+        "success": True,
+        "message": f"A 6-digit verification code has been dispatched to {masked}.",
+        "masked_email": masked
+    }
+
+
+@router.post(
+    "/unlock/reset-password",
+    response_model=UnlockAccountResetPasswordResponse
+)
+def reset_password_and_unlock(
+    data: UnlockAccountResetPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Option 2 (Step 2): NO, IT WAS NOT ME -> Verifies OTP, updates password, revokes prior sessions,
+    resets failed login attempts to 0, unlocks account, and dispatches confirmation email via Brevo.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    check_rate_limit(request, max_requests=5, window_seconds=60, prefix="unlock_pw_reset")
+
+    token_hash = hashlib.sha256(data.token.strip().encode("utf-8")).hexdigest()
+    token_record = (
+        db.query(AccountUnlockToken)
+        .filter(AccountUnlockToken.token_hash == token_hash)
+        .with_for_update()
+        .first()
+    )
+
+    if not token_record or token_record.is_used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or has already been used."
+        )
+
+    if datetime.utcnow() > token_record.expires_at:
+        token_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link has expired. Please initiate password recovery to restore access."
+        )
+
+    user = db.query(User).filter(User.id == token_record.user_id).with_for_update().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account associated with this verification request was not found."
+        )
+
+    if not getattr(user, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is not locked."
+        )
+
+    # Password validation
+    if data.confirm_password and data.new_password != data.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password and confirm password do not match."
+        )
+
+    if len(data.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters long."
+        )
+
+    if len(data.new_password.encode('utf-8')) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot exceed 72 bytes due to algorithm boundaries."
+        )
+
+    # OTP Verification
+    clean_otp = data.otp.strip()
+    if not clean_otp.isdigit() or len(clean_otp) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP must be a 6-digit code."
+        )
+
+    otp_record = (
+        db.query(OTPVerification)
+        .filter(
+            OTPVerification.user_id == user.id,
+            OTPVerification.purpose == "password_reset",
+            OTPVerification.is_used == False
+        )
+        .order_by(OTPVerification.created_at.desc())
+        .first()
+    )
+
+    if not otp_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active password recovery OTP found. Please request a new code."
+        )
+
+    if datetime.utcnow() > otp_record.expires_at:
+        otp_record.is_used = True
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new code."
+        )
+
+    if not verify_password(clean_otp, otp_record.otp_hash):
+        security_logger.log_otp_failure(client_ip, user.email, "Invalid recovery OTP during account unlock")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification code. Please check and try again."
+        )
+
+    # Update Password
+    user.password_hash = hash_password(data.new_password)
+
+    # Invalidate OTP & Tokens
+    otp_record.is_used = True
+    db.query(OTPVerification).filter(
+        OTPVerification.user_id == user.id,
+        OTPVerification.purpose == "password_reset"
+    ).update({"is_used": True}, synchronize_session=False)
+
+    token_record.is_used = True
+    db.query(AccountUnlockToken).filter(
+        AccountUnlockToken.user_id == user.id,
+        AccountUnlockToken.is_used == False
+    ).update({"is_used": True}, synchronize_session=False)
+
+    # Revoke sessions, reset counter, and unlock account
+    user.token_version = (user.token_version or 1) + 1
+    user.failed_login_attempts = 0
+    user.is_locked = False
+    user.locked_at = None
+
+    db.commit()
+
+    # Audit logging
+    security_logger.log_password_reset(client_ip, user.id, user.role)
+    security_logger.log_session_invalidation(client_ip, user.id, "Account recovery password reset completed; prior sessions revoked and account unlocked")
+    security_logger.log_account_unlocked(client_ip, user.id, user.role, method="recovery_otp_password_reset")
+    record_security_audit(db, "ACCOUNT_UNLOCKED", client_ip, user_id=user.id, role=user.role, status="SUCCESS", details="Account unlocked via suspicious login recovery with password reset")
+
+    # Send password-change confirmation email through Brevo
+    try:
+        send_password_change_confirmation_email(user.email, user.full_name)
+    except Exception as e:
+        logger.error(f"Failed to dispatch password change confirmation email: {e}")
+
+    return {
+        "message": "Password reset successfully and account has been unlocked. You may now sign in with your new credentials."
+    }
+
+
+@router.post(
+    "/unlock/resend",
+    response_model=ResendSecurityAlertResponse
+)
+@router.post(
+    "/resend-security-email",
+    response_model=ResendSecurityAlertResponse
+)
+def resend_security_alert(
+    data: ResendSecurityAlertRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Safely resends the suspicious login notification email for a locked account.
+    Does NOT unlock the account if email delivery fails.
+    Rate-limited to prevent abuse.
+    """
+    client_ip = get_trusted_client_ip(request)
+
+    check_rate_limit(request, max_requests=3, window_seconds=60, prefix="resend_sec_alert")
+
+    clean_email = data.email.strip().lower()
+    user = db.query(User).filter(User.email == clean_email).first()
+
+    # Generic response if user not found to prevent user enumeration
+    if not user:
+        return {
+            "message": "If an account matching this email address is currently locked, a security verification link has been dispatched."
+        }
+
+    if not getattr(user, "is_locked", False):
+        return {
+            "message": "Account is not currently locked. You may log in normally."
+        }
+
+    # Invalidate prior pending unlock tokens for this account
+    db.query(AccountUnlockToken).filter(
+        AccountUnlockToken.user_id == user.id,
+        AccountUnlockToken.is_used == False
+    ).update({"is_used": True}, synchronize_session=False)
+
+    # Generate fresh single-use verification token
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=20)
+
+    unlock_token = AccountUnlockToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        is_used=False
+    )
+    db.add(unlock_token)
+    db.commit()
+
+    email_sent, email_msg = send_security_alert_email(
+        recipient_email=user.email,
+        raw_token=raw_token,
+        role=user.role,
+        recipient_name=user.full_name,
+        ip_address=client_ip,
+        timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        activity_type="Account Lockout Notification (Resent)"
+    )
+
+    masked_email = mask_email(user.email)
+    if email_sent:
+        security_logger.log_security_email_accepted(client_ip, user.id, user.role, user.email, email_msg)
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_SENT",
+            client_ip,
+            user_id=user.id,
+            role=user.role,
+            status="SENT",
+            details=f"Unlock notification request accepted by Brevo for {masked_email} ({email_msg})",
+            level="INFO"
+        )
+        return {
+            "message": f"A security verification email request has been accepted and dispatched to {masked_email}. Please check your inbox and spam folders."
+        }
+    else:
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_FAILED",
+            client_ip,
+            user_id=user.id,
+            role=user.role,
+            status="FAILED",
+            details=f"Failed to resend unlock notification to {masked_email}: {email_msg}",
+            level="ERROR"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to dispatch security email at this time. Please try again shortly."
+        )
+
+
+@router.get("/unlock/delivery-status")
+def get_unlock_delivery_status(
+    message_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Checks the real-time delivery status of a Brevo transactional email messageId.
+    Differentiates:
+      - REQUEST_ACCEPTED
+      - DELIVERED
+      - DEFERRED
+      - BOUNCED
+      - BLOCKED
+      - DELIVERY_FAILED
+    """
+    from app.services.brevo_service import query_brevo_delivery_status
+    status_name, details = query_brevo_delivery_status(message_id)
+    return {
+        "message_id": message_id,
+        "status": status_name,
+        "details": details
+    }
+
+
+processed_webhook_events = set()
+
+
+@router.post("/brevo-webhook")
+async def brevo_webhook_endpoint(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Receives transactional email webhook events from Brevo.
+    Processes delivered, bounced, deferred, blocked, and failed events securely.
+    Deduplicates events to avoid duplicate processing.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    if not isinstance(payload, dict):
+        return {"status": "ignored", "reason": "non-dict payload"}
+
+    event_name = str(payload.get("event") or "").lower()
+    email = str(payload.get("email") or "").strip().lower()
+    message_id = str(payload.get("message-id") or payload.get("messageId") or "").strip()
+    event_id = str(payload.get("id") or f"{message_id}_{event_name}")
+
+    if not event_name or not email:
+        return {"status": "ignored", "reason": "missing required event fields"}
+
+    if event_id in processed_webhook_events:
+        return {"status": "duplicate_skipped", "event_id": event_id}
+
+    if len(processed_webhook_events) > 5000:
+        processed_webhook_events.clear()
+    processed_webhook_events.add(event_id)
+
+    user = db.query(User).filter(User.email == email).first()
+    client_ip = get_trusted_client_ip(request)
+    masked_recipient = mask_email(email)
+
+    if event_name == "delivered":
+        security_logger.log_security_email_delivered(
+            client_ip=client_ip,
+            user_id=user.id if user else None,
+            role=user.role if user else None,
+            email=email,
+            details=f"Confirmed delivery for {masked_recipient} (messageId: {message_id})"
+        )
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_DELIVERED",
+            client_ip,
+            user_id=user.id if user else None,
+            role=user.role if user else None,
+            status="DELIVERED",
+            details=f"Confirmed mailbox delivery for {masked_recipient} (messageId: {message_id})",
+            level="INFO"
+        )
+    elif "bounce" in event_name:
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_BOUNCED",
+            client_ip,
+            user_id=user.id if user else None,
+            role=user.role if user else None,
+            status="BOUNCED",
+            details=f"Delivery bounced for {masked_recipient}: {payload.get('reason', 'bounced')} (messageId: {message_id})",
+            level="WARNING"
+        )
+    elif event_name in ["blocked", "spam"]:
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_BLOCKED",
+            client_ip,
+            user_id=user.id if user else None,
+            role=user.role if user else None,
+            status="BLOCKED",
+            details=f"Email blocked/spam for {masked_recipient} (messageId: {message_id})",
+            level="ERROR"
+        )
+    elif event_name == "deferred":
+        record_security_audit(
+            db,
+            "SECURITY_EMAIL_DEFERRED",
+            client_ip,
+            user_id=user.id if user else None,
+            role=user.role if user else None,
+            status="DEFERRED",
+            details=f"Email delivery deferred for {masked_recipient} (messageId: {message_id})",
+            level="INFO"
+        )
+
+    return {"status": "processed", "event": event_name, "message_id": message_id}
+
 
 
 # ==========================================

@@ -12,10 +12,43 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendingSecurity, setResendingSecurity] = useState(false);
+  const [resendNotice, setResendNotice] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  React.useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  const handleResendSecurityEmail = async () => {
+    if (!email) {
+      setError('Please enter your registered email address first.');
+      return;
+    }
+    setResendingSecurity(true);
+    setResendNotice('');
+    try {
+      const res = await api.post('/auth/unlock/resend', {
+        email: email.trim().toLowerCase(),
+      });
+      setResendNotice(res.data?.message || 'A security verification email has been dispatched.');
+      setResendCooldown(60);
+    } catch (err) {
+      console.error('Resend security email error:', err);
+      const detail = err.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Unable to dispatch security email.');
+    } finally {
+      setResendingSecurity(false);
+    }
+  };
 
   const isExpired = new URLSearchParams(location.search).get('expired');
   const isResetSuccess = new URLSearchParams(location.search).get('reset') === 'success';
@@ -124,9 +157,34 @@ export default function LoginPage() {
 
           {/* Error Message */}
           {error && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold space-y-2">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+              {(error.toLowerCase().includes('blocked') || error.toLowerCase().includes('locked')) && (
+                <div className="pt-2 border-t border-rose-200/60 flex items-center justify-between">
+                  <span className="text-[11px] font-normal text-rose-600">
+                    Did not receive the verification link?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleResendSecurityEmail}
+                    disabled={resendingSecurity || resendCooldown > 0}
+                    className="text-[11px] font-bold text-brand-800 hover:underline disabled:opacity-50"
+                  >
+                    {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend Security Email'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Resend Notice */}
+          {resendNotice && (
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{resendNotice}</span>
             </div>
           )}
 

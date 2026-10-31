@@ -44,11 +44,25 @@ class DocumentParserService:
             return False, f"File size exceeds the 10 MB limit ({len(file_bytes)/(1024*1024):.1f} MB)."
 
         ext = Path(filename).suffix.lower()
-        valid_exts = [".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp"]
+        valid_exts = [".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".csv"]
         if ext not in valid_exts:
-            return False, f"Unsupported file extension '{ext}'. Allowed: PDF, DOCX, PNG, JPG, WEBP."
+            return False, f"Unsupported file extension '{ext}'. Allowed: PDF, DOCX, TXT, CSV, PNG, JPG, WEBP."
 
-        # Verify signature
+        # Plain text and CSV files
+        if ext in [".txt", ".csv"]:
+            if b"\x00" in file_bytes[:1024]:
+                return False, "File contains null bytes and is not valid text."
+            try:
+                file_bytes.decode("utf-8")
+                return True, "Valid"
+            except UnicodeDecodeError:
+                try:
+                    file_bytes.decode("latin-1")
+                    return True, "Valid"
+                except Exception:
+                    return False, "File content could not be decoded as text."
+
+        # Verify signature for binary formats
         matched_sig = False
         for expected_mime, signatures in cls.ALLOWED_MIME_TYPES.items():
             for sig in signatures:
@@ -107,6 +121,16 @@ class DocumentParserService:
         elif ext in [".png", ".jpg", ".jpeg", ".webp"]:
             # Image OCR via Gemini Vision
             return gemini_service.extract_report_with_vision(file_bytes, mime_type)
+
+        elif ext in [".txt", ".csv"]:
+            try:
+                try:
+                    return file_bytes.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    return file_bytes.decode("latin-1", errors="replace").strip()
+            except Exception as e:
+                logger.error(f"Text/CSV extraction error: {e}")
+                return f"[Error: Unable to extract text from {ext} document.]"
 
         return ""
 

@@ -35,14 +35,23 @@ def client():
 
 @pytest.fixture
 def patient_user(db):
-    user = db.query(User).filter(User.role == "patient").first()
-    assert user is not None, "No patient user found in database"
+    user = db.query(User).filter(
+        User.role == "patient",
+        User.is_locked == False,
+        User.is_active == True
+    ).first()
+    assert user is not None, "No active unlocked patient user found in database"
     return user
 
 
 @pytest.fixture
 def other_user(db, patient_user):
-    other = db.query(User).filter(User.role == "patient", User.id != patient_user.id).first()
+    other = db.query(User).filter(
+        User.role == "patient",
+        User.id != patient_user.id,
+        User.is_locked == False,
+        User.is_active == True
+    ).first()
     if not other:
         uid = uuid.uuid4().hex[:6]
         other = User(
@@ -51,7 +60,8 @@ def other_user(db, patient_user):
             password_hash=hash_password("Password123!"),
             role="patient",
             is_active=True,
-            is_verified=True
+            is_verified=True,
+            is_locked=False
         )
         db.add(other)
         db.commit()
@@ -243,3 +253,159 @@ def test_patient_assessment_and_shap_context_retrieval(db, patient_user):
     )
     assert shap_ctx is not None
     assert "SHAP" in shap_ctx
+
+
+# ==========================================
+# 3. FILE ATTACHMENTS (PDF, TXT, DOCX, CSV)
+# ==========================================
+
+def test_chatbot_attachment_txt_file(client, patient_user):
+    headers = auth_header(patient_user)
+    # Create consultation
+    conv_res = client.post("/api/v1/chat/conversations", json={"title": "TXT Attachment Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    try:
+        txt_content = b"Patient Report:\nBlood Pressure: 120/80 mmHg\nTotal Cholesterol: 185 mg/dL\nFasting Glucose: 92 mg/dL"
+        files = {"file": ("vitals.txt", txt_content, "text/plain")}
+        data = {"content": "Please explain my lipid and glucose metrics."}
+
+        res = client.post(
+            f"/api/v1/chat/conversations/{conv_id}/attachments",
+            files=files,
+            data=data,
+            headers=headers
+        )
+        assert res.status_code == 201
+        res_data = res.json()
+        assert res_data["role"] == "assistant"
+        assert len(res_data["content"]) > 10
+
+        # Verify messages history contains the attached indicator
+        msgs_res = client.get(f"/api/v1/chat/conversations/{conv_id}/messages", headers=headers)
+        assert msgs_res.status_code == 200
+        msgs = msgs_res.json()["messages"]
+        user_msg = next((m for m in msgs if m["role"] == "user"), None)
+        assert user_msg is not None
+        assert "[Attached: vitals.txt]" in user_msg["content"]
+    finally:
+        client.delete(f"/api/v1/chat/conversations/{conv_id}", headers=headers)
+
+
+def test_chatbot_attachment_csv_file(client, patient_user):
+    headers = auth_header(patient_user)
+    conv_res = client.post("/api/v1/chat/conversations", json={"title": "CSV Attachment Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    try:
+        csv_content = b"Test,Result,Reference_Range,Status\nTotal_Cholesterol,240,<200,High\nLDL,160,<100,High\nHDL,45,>40,Normal\nTriglycerides,175,<150,Elevated"
+        files = {"file": ("lipid_panel.csv", csv_content, "text/csv")}
+        data = {"content": "Can you review my CSV lipid profile numbers?"}
+
+        res = client.post(
+            f"/api/v1/chat/conversations/{conv_id}/attachments",
+            files=files,
+            data=data,
+            headers=headers
+        )
+        assert res.status_code == 201
+        res_data = res.json()
+        assert res_data["role"] == "assistant"
+        assert len(res_data["content"]) > 10
+
+        # Verify persistence
+        msgs_res = client.get(f"/api/v1/chat/conversations/{conv_id}/messages", headers=headers)
+        msgs = msgs_res.json()["messages"]
+        assert any("[Attached: lipid_panel.csv]" in m["content"] for m in msgs if m["role"] == "user")
+    finally:
+        client.delete(f"/api/v1/chat/conversations/{conv_id}", headers=headers)
+
+
+def test_chatbot_attachment_docx_file(client, patient_user):
+    import io
+    from docx import Document
+    headers = auth_header(patient_user)
+    conv_res = client.post("/api/v1/chat/conversations", json={"title": "DOCX Attachment Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    try:
+        doc = Document()
+        doc.add_paragraph("Clinical Summary: Normal left ventricular ejection fraction 62%. Sinus rhythm at 72 bpm.")
+        buf = io.BytesIO()
+        doc.save(buf)
+        docx_bytes = buf.getvalue()
+
+        files = {"file": ("echo_report.docx", docx_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        data = {"content": "Can you summarize my echo report findings?"}
+
+        res = client.post(
+            f"/api/v1/chat/conversations/{conv_id}/attachments",
+            files=files,
+            data=data,
+            headers=headers
+        )
+        assert res.status_code == 201
+        res_data = res.json()
+        assert res_data["role"] == "assistant"
+        assert len(res_data["content"]) > 10
+    finally:
+        client.delete(f"/api/v1/chat/conversations/{conv_id}", headers=headers)
+
+
+def test_chatbot_attachment_pdf_file(client, patient_user):
+    headers = auth_header(patient_user)
+    conv_res = client.post("/api/v1/chat/conversations", json={"title": "PDF Attachment Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    try:
+        # Minimal valid PDF binary with extractable text
+        pdf_bytes = (
+            b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
+            b"4 0 obj\n<< /Length 55 >>\nstream\n"
+            b"BT\n/F1 12 Tf\n100 700 Td\n(Blood pressure 118 over 76 mmHg) Tj\nET\n"
+            b"endstream\nendobj\nxref\n0 5\n0000000000 65535 f \n"
+            b"0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n"
+            b"0000000216 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n323\n%%EOF\n"
+        )
+        files = {"file": ("cardiac_exam.pdf", pdf_bytes, "application/pdf")}
+        data = {"content": "What does my PDF report state?"}
+
+        res = client.post(
+            f"/api/v1/chat/conversations/{conv_id}/attachments",
+            files=files,
+            data=data,
+            headers=headers
+        )
+        assert res.status_code == 201
+        res_data = res.json()
+        assert res_data["role"] == "assistant"
+        assert len(res_data["content"]) > 10
+    finally:
+        client.delete(f"/api/v1/chat/conversations/{conv_id}", headers=headers)
+
+
+def test_chatbot_attachment_unsupported_file_rejected(client, patient_user):
+    headers = auth_header(patient_user)
+    conv_res = client.post("/api/v1/chat/conversations", json={"title": "Reject Test"}, headers=headers)
+    assert conv_res.status_code == 201
+    conv_id = conv_res.json()["id"]
+
+    try:
+        files = {"file": ("malicious.exe", b"MZ\x90\x00\x03\x00\x00\x00", "application/x-msdownload")}
+        res = client.post(
+            f"/api/v1/chat/conversations/{conv_id}/attachments",
+            files=files,
+            data={"content": "Check this file"},
+            headers=headers
+        )
+        assert res.status_code == 400
+        assert "Unsupported file extension" in res.json()["detail"]
+    finally:
+        client.delete(f"/api/v1/chat/conversations/{conv_id}", headers=headers)
+

@@ -4,7 +4,6 @@ import pytest
 import secrets
 import hashlib
 import json
-import smtplib
 import concurrent.futures
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
@@ -24,7 +23,7 @@ from app.models.activity_log import ActivityLog
 from app.core.security import hash_password, create_access_token
 from app.core.rate_limiter import rate_limiter, ip_failed_login_tracker
 from app.core.config import settings
-from app.services.email_service import send_smtp_email, send_security_alert_email, mask_email
+from app.services.email_service import send_brevo_email, send_security_alert_email, mask_email
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +130,7 @@ def test_failed_login_tracking_and_blocking_on_sixth_attempt(client, db_session)
     user = create_or_reset_test_user(db_session, email, role="patient", password=correct_pwd)
 
     # 1. Attempts 1 to 5: Incorrect password -> HTTP 401, account remains unlocked
-    with patch("app.services.email_service.send_smtp_email", return_value=(True, "OK")):
+    with patch("app.services.email_service.send_brevo_email", return_value=(True, "OK")):
         for attempt in range(1, 6):
             res = client.post(
                 "/api/v1/auth/login",
@@ -184,15 +183,15 @@ def test_blocked_user_and_doctor_security_email_sent(client, db_session):
     user_email = "user_email_test@heartshield.com"
     u = create_or_reset_test_user(db_session, user_email, role="patient")
 
-    with patch("app.services.email_service.send_smtp_email") as mock_user_email:
-        mock_user_email.return_value = (True, "Email accepted by SMTP server (250 OK)")
+    with patch("app.services.email_service.send_brevo_email") as mock_user_email:
+        mock_user_email.return_value = (True, "Email accepted by Brevo API (messageId: <test-patient-id>)")
         for _ in range(6):
             client.post("/api/v1/auth/login", json={"email": user_email, "password": "BadPassword!"})
 
         mock_user_email.assert_called_once()
         args, kwargs = mock_user_email.call_args
         assert kwargs["recipient_email"] == user_email
-        assert kwargs["subject"] == "Security Alert: Suspicious Login Attempts Detected"
+        assert kwargs["subject"] in ("Security Alert: Suspicious Login Activity Detected – HeartShield", "Security Alert: Suspicious Login Attempts Detected")
         assert "[YES, IT WAS ME]" in kwargs["text_body"]
         assert "http://localhost:3000/unlock-account?token=" in kwargs["text_body"]
         assert "5173" not in kwargs["text_body"]
@@ -211,15 +210,15 @@ def test_blocked_user_and_doctor_security_email_sent(client, db_session):
     doc = create_or_reset_test_user(db_session, doctor_email, role="doctor")
     ip_failed_login_tracker.reset()
 
-    with patch("app.services.email_service.send_smtp_email") as mock_doc_email:
-        mock_doc_email.return_value = (True, "Email accepted by SMTP server (250 OK)")
+    with patch("app.services.email_service.send_brevo_email") as mock_doc_email:
+        mock_doc_email.return_value = (True, "Email accepted by Brevo API (messageId: <test-doctor-id>)")
         for _ in range(6):
             client.post("/api/v1/auth/login", json={"email": doctor_email, "password": "BadPassword!"})
 
         mock_doc_email.assert_called_once()
         args, kwargs = mock_doc_email.call_args
         assert kwargs["recipient_email"] == doctor_email
-        assert kwargs["subject"] == "Security Alert: Suspicious Login Attempts Detected"
+        assert kwargs["subject"] in ("Security Alert: Suspicious Login Activity Detected – HeartShield", "Security Alert: Suspicious Login Attempts Detected")
         assert "[YES, IT WAS ME]" in kwargs["text_body"]
         assert "http://localhost:3000/unlock-account?token=" in kwargs["text_body"]
         assert "5173" not in kwargs["text_body"]
@@ -664,49 +663,55 @@ def test_concurrent_login_requests_and_db_consistency(mock_send_email, client, d
     assert "Account is temporarily blocked" in correct_attempt_res.json()["detail"]
 
 
-def test_safe_smtp_delivery_and_error_handling(client, db_session):
+def test_safe_brevo_delivery_and_error_handling(client, db_session):
     """
-    Test Scenarios for Email Delivery:
+    Test Scenarios for Brevo REST API Email Delivery:
     1. Verify mask_email utility never exposes full username
-    2. Verify authentic SMTP connection with existing settings sends and receives 250 OK
-    3. Verify graceful failure handling and logging when SMTP encounters an error (no credential leaks)
+    2. Verify authentic Brevo REST API dispatch with mock acceptance (messageId returned)
+    3. Verify graceful failure handling and logging when Brevo API encounters an error (no credential leaks)
     4. Verify SECURITY_EMAIL_FAILED is audited when email dispatch fails
     """
     # 1. Verify masking helper
     assert mask_email("doctor@example.com") == "do***@example.com"
     assert mask_email("a@b.com") == "a***@b.com"
 
-    # 2. Verify live SMTP connection with existing settings
-    if settings.SMTP_HOST and settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-        success, detail = send_smtp_email(
-            recipient_email=settings.SMTP_USERNAME,
-            subject="HeartShield Automated SMTP Health Check",
-            text_body="This is an automated delivery test verifying Gmail SMTP connection.",
+    # 2. Verify Brevo REST API dispatch handling
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = {"messageId": "<202610311200.test@smtp-relay.mailin.fr>"}
+        mock_post.return_value = mock_resp
+
+        success, detail = send_brevo_email(
+            recipient_email="admin@heartshield.com",
+            subject="HeartShield Automated Brevo Health Check",
+            body="This is an automated delivery test verifying Brevo REST API.",
             recipient_name="HeartShield Admin"
         )
         assert success is True
-        assert "250 OK" in detail
+        assert "messageId" in detail
 
-    # 3. Verify graceful error handling when SMTP server fails
-    with patch("smtplib.SMTP") as mock_smtp_class:
-        mock_server = MagicMock()
-        mock_server.send_message.side_effect = smtplib.SMTPConnectError(421, b"Connection refused")
-        mock_smtp_class.return_value = mock_server
+    # 3. Verify graceful error handling when Brevo API returns unauthorized error
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+        mock_resp.json.return_value = {"code": "unauthorized", "message": "Key not authorized"}
+        mock_post.return_value = mock_resp
 
-        fail_success, fail_detail = send_smtp_email(
+        fail_success, fail_detail = send_brevo_email(
             recipient_email="test_recipient@heartshield.com",
             subject="Test Fail",
-            text_body="Test body"
+            body="Test body"
         )
         assert fail_success is False
-        assert "Could not connect to SMTP server" in fail_detail
+        assert "authentication failed" in fail_detail.lower()
 
     # 4. Verify that when email fails during account lockout, SECURITY_EMAIL_FAILED is recorded
     fail_user_email = "email_fail_test@heartshield.com"
     f_user = create_or_reset_test_user(db_session, fail_user_email, role="patient")
     ip_failed_login_tracker.reset()
 
-    with patch("app.api.auth.send_security_alert_email", return_value=(False, "SMTP connection refused")):
+    with patch("app.api.auth.send_security_alert_email", return_value=(False, "Brevo API connection refused")):
         for _ in range(6):
             client.post("/api/v1/auth/login", json={"email": fail_user_email, "password": "BadPassword!"})
 

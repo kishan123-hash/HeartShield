@@ -1,7 +1,10 @@
+import os
+import uuid
+import re
 import json
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -24,6 +27,7 @@ from app.services.safety_service import safety_service
 from app.services.rag_service import rag_service
 from app.services.gemini_service import gemini_service
 from app.services.prediction_service import prediction_service
+from app.services.document_parser import document_parser
 
 logger = logging.getLogger("chat_router")
 
@@ -31,6 +35,9 @@ router = APIRouter(
     prefix="/api/v1/chat",
     tags=["AI Health Chatbot"]
 )
+
+CHAT_ATTACHMENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "reports_storage", "chat_attachments"))
+os.makedirs(CHAT_ATTACHMENTS_DIR, exist_ok=True)
 
 
 # ==========================================
@@ -338,19 +345,14 @@ def get_patient_assessment_context(
 # MESSAGING & RAG PIPELINE
 # ==========================================
 
-@router.post(
-    "/conversations/{conversation_id}/messages",
-    response_model=ChatMessageResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Send message and receive grounded AI response"
-)
-def send_message(
+async def process_chat_message(
     conversation_id: int,
-    data: ChatMessageCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    # Enforce ownership / IDOR prevention
+    content: str,
+    report_id: Optional[int],
+    file: Optional[UploadFile],
+    current_user: User,
+    db: Session
+) -> ChatMessage:
     conversation = (
         db.query(ChatConversation)
         .filter(ChatConversation.id == conversation_id)
@@ -363,20 +365,81 @@ def send_message(
             detail="Conversation not found"
         )
 
-    user_text = safety_service.sanitize_user_input(data.content.strip())
+    file_extracted_text = None
+    uploaded_filename = None
+
+    if file and file.filename:
+        # 1. Stream file bytes with bounded chunk reading (Anti-DoS buffer guard)
+        CHUNK_SIZE = 64 * 1024  # 64 KB chunks
+        MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB limit
+        byte_chunks = []
+        total_size = 0
+
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > MAX_UPLOAD_SIZE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File size exceeds maximum allowed limit (10MB)"
+                )
+            byte_chunks.append(chunk)
+
+        file_bytes = b"".join(byte_chunks)
+        raw_name = file.filename or "attachment"
+        uploaded_filename = re.sub(r'[\r\n\x00-\x1f\x7f]', '', raw_name)[:150]
+        content_type = file.content_type or "application/octet-stream"
+
+        # 2. Content validation
+        is_valid, error_msg = document_parser.validate_file(file_bytes, uploaded_filename, content_type)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+
+        # 3. Secure file storage in CHAT_ATTACHMENTS_DIR
+        safe_suffix = os.path.splitext(uploaded_filename)[1].lower()
+        stored_name = f"chat_{uuid.uuid4().hex}_{safe_suffix}"
+        dest_path = os.path.join(CHAT_ATTACHMENTS_DIR, stored_name)
+        with open(dest_path, "wb") as f:
+            f.write(file_bytes)
+
+        # 4. Text extraction (supports PDF, DOCX, TXT, CSV, and images)
+        file_extracted_text = document_parser.extract_text(file_bytes, uploaded_filename, content_type)
+
+    raw_user_text = (content or "").strip()
+    if not raw_user_text and not uploaded_filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message content or an attached file is required."
+        )
+
+    clean_user_text = safety_service.sanitize_user_input(raw_user_text) if raw_user_text else ""
+
+    # User message representation in chat history
+    if uploaded_filename:
+        if clean_user_text:
+            display_content = f"[Attached: {uploaded_filename}]\n\n{clean_user_text}"
+        else:
+            display_content = f"[Attached: {uploaded_filename}]\nPlease analyze and explain the medical/clinical findings in this attached document."
+    else:
+        display_content = clean_user_text
 
     # 1. Store user message in database
     user_msg = ChatMessage(
         conversation_id=conversation.id,
         role="user",
-        content=user_text
+        content=display_content
     )
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
 
     # 2. Check for Immediate Life-Threatening Emergency
-    is_emergency, emergency_alert = safety_service.check_emergency(user_text)
+    is_emergency, emergency_alert = safety_service.check_emergency(clean_user_text or display_content)
     if is_emergency:
         assistant_msg = ChatMessage(
             conversation_id=conversation.id,
@@ -390,21 +453,27 @@ def send_message(
         return assistant_msg
 
     # 3. Retrieve Report Context if attached
-    report_context = None
-    if data.report_id:
+    combined_contexts = []
+    if file_extracted_text:
+        combined_contexts.append(f"Attached Document ({uploaded_filename}):\n{file_extracted_text}")
+
+    if report_id:
         report = (
             db.query(PatientMedicalReport)
             .filter(
-                PatientMedicalReport.id == data.report_id,
+                PatientMedicalReport.id == report_id,
                 PatientMedicalReport.user_id == current_user.id
             )
             .first()
         )
         if report and report.extracted_text:
-            report_context = f"Report Filename: {report.original_filename}\n{report.extracted_text}"
+            combined_contexts.append(f"Report Filename: {report.original_filename}\n{report.extracted_text}")
 
-    # 4. RAG Retrieval from Knowledge Base (focused threshold)
-    rag_passages = rag_service.retrieve(user_text, top_k=3, threshold=0.07)
+    report_context = "\n\n".join(combined_contexts) if combined_contexts else None
+
+    # 4. RAG Retrieval from Knowledge Base
+    rag_query = clean_user_text or (file_extracted_text[:300] if file_extracted_text else "Cardiovascular Health")
+    rag_passages = rag_service.retrieve(rag_query, top_k=3, threshold=0.07)
 
     # 5. Fetch prior message history for continuity (latest 10 messages in chronological order)
     prior_messages_desc = (
@@ -424,7 +493,7 @@ def send_message(
     assessment_context = get_patient_assessment_context(
         db=db,
         current_user=current_user,
-        user_text=user_text,
+        user_text=clean_user_text,
         prior_messages=prior_messages
     )
 
@@ -447,8 +516,9 @@ def send_message(
 
     # Update conversation title if default
     if conversation.title == "New Consultation":
-        title_snippet = user_text[:35].strip()
-        if len(user_text) > 35:
+        title_source = clean_user_text or (f"Review: {uploaded_filename}" if uploaded_filename else "Consultation")
+        title_snippet = title_source[:35].strip()
+        if len(title_source) > 35:
             title_snippet += "..."
         conversation.title = title_snippet
 
@@ -456,3 +526,75 @@ def send_message(
     db.refresh(assistant_msg)
 
     return assistant_msg
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=ChatMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Send message and receive grounded AI response"
+)
+async def send_message(
+    conversation_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    content_type = request.headers.get("content-type", "").lower()
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        content = form.get("content", "")
+        text_content = content if isinstance(content, str) else ""
+        report_id_raw = form.get("report_id")
+        report_id = int(report_id_raw) if report_id_raw and str(report_id_raw).isdigit() else None
+        file_field = form.get("file")
+        upload_file = file_field if isinstance(file_field, UploadFile) else None
+        return await process_chat_message(
+            conversation_id=conversation_id,
+            content=text_content,
+            report_id=report_id,
+            file=upload_file,
+            current_user=current_user,
+            db=db
+        )
+    else:
+        body = await request.json()
+        text_content = body.get("content", "")
+        if not text_content or not str(text_content).strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="content is required"
+            )
+        report_id = body.get("report_id")
+        return await process_chat_message(
+            conversation_id=conversation_id,
+            content=text_content,
+            report_id=report_id,
+            file=None,
+            current_user=current_user,
+            db=db
+        )
+
+
+@router.post(
+    "/conversations/{conversation_id}/attachments",
+    response_model=ChatMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload file attachment and receive grounded AI response"
+)
+async def upload_attachment(
+    conversation_id: int,
+    file: UploadFile = File(...),
+    content: Optional[str] = Form(""),
+    report_id: Optional[int] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return await process_chat_message(
+        conversation_id=conversation_id,
+        content=content or "",
+        report_id=report_id,
+        file=file,
+        current_user=current_user,
+        db=db
+    )

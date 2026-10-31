@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import EmergencyBanner from '../components/EmergencyBanner';
+import ChatMarkdown from '../components/ChatMarkdown';
 import api from '../api/client';
 
 export default function ChatbotPage() {
@@ -29,18 +30,20 @@ export default function ChatbotPage() {
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [attachedFile, setAttachedFile] = useState(null);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [emergencyDetected, setEmergencyDetected] = useState(false);
 
-  // Attached report selection
+  // Attached report selection from database
   const [reports, setReports] = useState([]);
   const [selectedReportId, setSelectedReportId] = useState(
     initialReportId ? Number(initialReportId) : null
   );
 
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Auto scroll to bottom
   const scrollToBottom = () => {
@@ -140,36 +143,99 @@ export default function ChatbotPage() {
     return acuteRegex.test(text);
   };
 
+  const handleAttachmentClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedExts = ['.pdf', '.txt', '.docx', '.csv'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+
+    if (!allowedExts.includes(ext)) {
+      alert(`Unsupported file format "${ext}". Supported file types: PDF (.pdf), TXT (.txt), DOCX (.docx), CSV (.csv)`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size exceeds the 10 MB maximum upload limit.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setAttachedFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSendMessage = async (e) => {
     e?.preventDefault();
-    if (!inputMessage.trim() || sending || !activeConvId) return;
+    if ((!inputMessage.trim() && !attachedFile) || sending || !activeConvId) return;
 
     const userText = inputMessage.trim();
+    const currentFile = attachedFile;
+
     setInputMessage('');
+    setAttachedFile(null);
 
     // Check emergency keywords immediately
-    if (checkAcuteSymptoms(userText)) {
+    if (userText && checkAcuteSymptoms(userText)) {
       setEmergencyDetected(true);
     }
+
+    // Display string for user's message in UI
+    const displayMessage = currentFile
+      ? (userText ? `[Attached: ${currentFile.name}]\n\n${userText}` : `[Attached: ${currentFile.name}]`)
+      : userText;
 
     // Optimistically append user message
     const optimisticUserMsg = {
       id: Date.now(),
       conversation_id: activeConvId,
       role: 'user',
-      content: userText,
+      content: displayMessage,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimisticUserMsg]);
     setSending(true);
 
     try {
-      const payload = {
-        content: userText,
-        report_id: selectedReportId || undefined,
-      };
+      let res;
+      if (currentFile) {
+        // Multipart/form-data upload
+        const formData = new FormData();
+        formData.append('file', currentFile);
+        if (userText) {
+          formData.append('content', userText);
+        }
+        if (selectedReportId) {
+          formData.append('report_id', selectedReportId);
+        }
 
-      const res = await api.post(`/chat/conversations/${activeConvId}/messages`, payload);
+        res = await api.post(
+          `/chat/conversations/${activeConvId}/attachments`,
+          formData,
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          }
+        );
+      } else {
+        // Standard JSON message
+        const payload = {
+          content: userText,
+          report_id: selectedReportId || undefined,
+        };
+        res = await api.post(`/chat/conversations/${activeConvId}/messages`, payload);
+      }
 
       // Append assistant response
       setMessages((prev) => [...prev, res.data]);
@@ -183,13 +249,18 @@ export default function ChatbotPage() {
       }
     } catch (err) {
       console.error('Error sending message:', err);
+      const errDetail = err.response?.data?.detail;
+      const errorMsg = typeof errDetail === 'string'
+        ? errDetail
+        : 'I apologize, but I encountered an error communicating with the medical reasoning service. Please check your network connection and try again.';
+
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 1,
           conversation_id: activeConvId,
           role: 'assistant',
-          content: 'I apologize, but I encountered an error communicating with the medical reasoning service. Please check your network connection and try again.',
+          content: errorMsg,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -333,11 +404,15 @@ export default function ChatbotPage() {
                       <div
                         className={`p-4 rounded-3xl text-xs leading-relaxed inline-block text-left ${
                           isAssistant
-                            ? 'bg-warm-bg text-gray-800 border border-warm-border shadow-xs'
+                            ? 'bg-warm-bg text-gray-800 border border-warm-border shadow-xs max-w-full'
                             : 'bg-brand-800 text-white font-medium shadow-md shadow-brand-900/10'
                         }`}
                       >
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                        {isAssistant ? (
+                          <ChatMarkdown content={msg.content} />
+                        ) : (
+                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                        )}
                       </div>
 
                       {/* RAG Grounding Citations */}
@@ -409,36 +484,77 @@ export default function ChatbotPage() {
 
             {/* Bottom Message Input Box */}
             <div className="p-4 bg-white border-t border-warm-border shrink-0">
-              {/* Attached Report Pill */}
+              {/* Attached Lab Report Pill (from database) */}
               {selectedReportId && (
                 <div className="mb-2 flex items-center justify-between bg-brand-50 border border-brand-200 px-3 py-1.5 rounded-xl text-xs text-brand-900 max-w-xl">
                   <div className="flex items-center space-x-2 truncate">
                     <Paperclip className="w-3.5 h-3.5 text-brand-800 shrink-0" />
                     <span className="font-semibold truncate">
-                      Attached Report:{' '}
+                      Attached Lab Report:{' '}
                       {reports.find((r) => r.id === selectedReportId)?.original_filename || `Report #${selectedReportId}`}
                     </span>
                   </div>
                   <button
+                    type="button"
                     onClick={() => setSelectedReportId(null)}
-                    className="text-brand-800 hover:text-brand-900 font-bold p-1"
+                    className="text-brand-800 hover:text-brand-900 font-bold p-1 cursor-pointer"
+                    title="Remove lab report"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
 
-              <form onSubmit={handleSendMessage} className="flex items-center space-x-3">
+              {/* Attached Local File Pill (PDF, TXT, DOCX, CSV) */}
+              {attachedFile && (
+                <div className="mb-2 flex items-center justify-between bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs text-emerald-900 max-w-xl animate-fade-in">
+                  <div className="flex items-center space-x-2 truncate">
+                    <FileText className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span className="font-semibold truncate">
+                      Attached File: {attachedFile.name} ({(attachedFile.size / 1024).toFixed(1)} KB)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRemoveAttachment}
+                    className="text-emerald-700 hover:text-emerald-900 font-bold p-1 ml-2 transition-colors cursor-pointer"
+                    title="Remove attached file"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleSendMessage} className="flex items-center space-x-2.5 sm:space-x-3">
+                {/* Hidden File Picker Input */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  accept=".pdf,.txt,.docx,.csv"
+                  className="hidden"
+                />
+
+                {/* Attachment Button */}
+                <button
+                  type="button"
+                  onClick={handleAttachmentClick}
+                  className="p-3 bg-warm-bg hover:bg-white text-gray-600 hover:text-brand-800 border border-warm-border rounded-2xl transition-all shadow-xs flex items-center justify-center shrink-0 cursor-pointer"
+                  title="Attach File (PDF, TXT, DOCX, CSV)"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+
                 {/* Report Attachment Dropdown */}
                 {reports.length > 0 && (
-                  <div className="relative">
+                  <div className="relative hidden sm:block">
                     <select
                       value={selectedReportId || ''}
                       onChange={(e) => setSelectedReportId(e.target.value ? Number(e.target.value) : null)}
                       className="text-xs bg-warm-bg border border-warm-border rounded-2xl py-3 px-3 text-gray-700 focus:outline-none focus:border-brand-800"
                       title="Attach Medical Report"
                     >
-                      <option value="">Attach Lab Report (Optional)</option>
+                      <option value="">Select Lab Report (Optional)</option>
                       {reports.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.original_filename || r.file_name} ({r.report_type})
@@ -454,13 +570,17 @@ export default function ChatbotPage() {
                     type="text"
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder="Ask HeartShield AI about your heart health, biomarkers, or lifestyle habits..."
+                    placeholder={
+                      attachedFile
+                        ? `Ask HeartShield AI about ${attachedFile.name}...`
+                        : "Ask HeartShield AI about your heart health, biomarkers, or lifestyle habits..."
+                    }
                     className="w-full pl-4 pr-12 py-3 bg-warm-bg border border-warm-border rounded-2xl text-xs text-gray-900 focus:outline-none focus:border-brand-800 transition-all"
                   />
                   <button
                     type="submit"
-                    disabled={!inputMessage.trim() || sending}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-brand-800 text-white hover:bg-brand-900 transition-all shadow-md shadow-brand-900/20 disabled:opacity-40"
+                    disabled={(!inputMessage.trim() && !attachedFile) || sending}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-brand-800 text-white hover:bg-brand-900 transition-all shadow-md shadow-brand-900/20 disabled:opacity-40 cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
                   </button>

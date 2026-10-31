@@ -68,13 +68,32 @@ class SecurityLogger:
         cls.log_event("ACCOUNT_LOCKED", client_ip, user_id=user_id, role=role, details=f"Locked after {attempt_count} consecutive failed attempts", status="BLOCKED", level="WARNING")
 
     @classmethod
+    def log_security_email_accepted(cls, client_ip: str, user_id: int, role: str, email: str, details: Optional[str] = None) -> None:
+        masked_email = email
+        if "@" in email:
+            parts = email.split("@")
+            masked_email = f"{parts[0][:2]}***@{parts[1]}"
+        event_details = details or f"Unlock notification accepted by Brevo for {masked_email}"
+        cls.log_event("SECURITY_EMAIL_ACCEPTED", client_ip, user_id=user_id, role=role, details=event_details, status="ACCEPTED", level="INFO")
+
+    @classmethod
+    def log_security_email_delivered(cls, client_ip: str, user_id: Optional[int], role: Optional[str], email: str, details: Optional[str] = None) -> None:
+        masked_email = email
+        if "@" in email:
+            parts = email.split("@")
+            masked_email = f"{parts[0][:2]}***@{parts[1]}"
+        event_details = details or f"Unlock notification confirmed delivered to mailbox {masked_email}"
+        cls.log_event("SECURITY_EMAIL_DELIVERED", client_ip, user_id=user_id, role=role, details=event_details, status="DELIVERED", level="INFO")
+
+    @classmethod
     def log_security_email_sent(cls, client_ip: str, user_id: int, role: str, email: str, details: Optional[str] = None) -> None:
         masked_email = email
         if "@" in email:
             parts = email.split("@")
             masked_email = f"{parts[0][:2]}***@{parts[1]}"
         event_details = details or f"Unlock notification dispatched to {masked_email}"
-        cls.log_event("SECURITY_EMAIL_SENT", client_ip, user_id=user_id, role=role, details=event_details, status="SENT", level="INFO")
+        cls.log_event("SECURITY_EMAIL_ACCEPTED", client_ip, user_id=user_id, role=role, details=event_details, status="ACCEPTED", level="INFO")
+
 
     @classmethod
     def log_security_email_failed(cls, client_ip: str, user_id: int, role: str, email: str, reason: str) -> None:

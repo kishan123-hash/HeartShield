@@ -346,6 +346,12 @@ class UnlockAccountVerifyResponse(BaseModel):
 
     message: str
 
+    email: Optional[str] = None
+
+    masked_email: Optional[str] = None
+
+    role: Optional[str] = None
+
 
 class UnlockAccountConfirmRequest(BaseModel):
 
@@ -361,6 +367,61 @@ class UnlockAccountConfirmRequest(BaseModel):
 
 
 class UnlockAccountConfirmResponse(BaseModel):
+
+    message: str
+
+
+class UnlockAccountRequestOTPRequest(BaseModel):
+
+    token: str = Field(
+        min_length=10,
+        max_length=255
+    )
+
+
+class UnlockAccountRequestOTPResponse(BaseModel):
+
+    success: bool
+
+    message: str
+
+    masked_email: Optional[str] = None
+
+
+class UnlockAccountResetPasswordRequest(BaseModel):
+
+    token: str = Field(
+        min_length=10,
+        max_length=255
+    )
+
+    otp: str = Field(
+        min_length=6,
+        max_length=6
+    )
+
+    new_password: str = Field(
+        min_length=6,
+        max_length=128
+    )
+
+    confirm_password: Optional[str] = None
+
+
+class UnlockAccountResetPasswordResponse(BaseModel):
+
+    message: str
+
+
+class ResendSecurityAlertRequest(BaseModel):
+
+    email: str = Field(
+        min_length=3,
+        max_length=150
+    )
+
+
+class ResendSecurityAlertResponse(BaseModel):
 
     message: str
 
