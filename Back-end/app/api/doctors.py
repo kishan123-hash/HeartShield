@@ -13,6 +13,7 @@ from app.models.recommendation import Recommendation
 from app.models.patient import Patient
 from app.models.assessment import Assessment
 from app.models.prediction import ModelPrediction
+from app.models.report import Report
 from datetime import date, datetime
 from decimal import Decimal
 from sqlalchemy import Column, BigInteger, Text, DateTime, ForeignKey
@@ -359,6 +360,24 @@ def get_assigned_patient_details(
                 "created_at": serialize_value(pred_record.created_at)
             }
 
+            report_record = (
+                db.query(Report)
+                .filter(Report.prediction_id == pred_record.id)
+                .first()
+            )
+            latest_report = None
+            if report_record:
+                latest_report = {
+                    "id": report_record.id,
+                    "prediction_id": report_record.prediction_id,
+                    "patient_id": report_record.patient_id,
+                    "status": report_record.status,
+                    "is_approved": report_record.is_approved,
+                    "doctor_notes": report_record.doctor_notes,
+                    "recommendations": report_record.recommendations,
+                    "approved_at": serialize_value(report_record.approved_at)
+                }
+
     # 6. Return patient profile and actual assessment history with latest assessment
     return {
         "patient": {
@@ -380,6 +399,7 @@ def get_assigned_patient_details(
         },
         "latest_assessment": latest_assessment,
         "latest_prediction": latest_prediction,
+        "latest_report": latest_report,
         "message": "Assessment found" if latest_assessment else "No assessment found",
         "total_assessments": len(assessment_list),
         "assessments": assessment_list

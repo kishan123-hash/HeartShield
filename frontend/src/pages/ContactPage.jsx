@@ -18,16 +18,18 @@ export default function ContactPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      // Send feedback/inquiry
-      await api.post('/feedback', {
-        feedback_text: `[Contact Form - ${formData.subject}] from ${formData.name} (${formData.email}): ${formData.message}`,
-        rating: 5,
-        category: 'general'
+      await api.post('/contact', {
+        name: formData.name,
+        email: formData.email,
+        subject: formData.subject,
+        message: formData.message,
       });
       setSubmitted(true);
     } catch (err) {
-      // Even if feedback endpoint requires auth, show friendly success feedback for public visitors
-      setSubmitted(true);
+      console.error('Contact form submission error:', err);
+      const detail = err.response?.data?.detail;
+      const errorMsg = typeof detail === 'string' ? detail : 'Failed to send your message. Please try again.';
+      alert(errorMsg);
     } finally {
       setLoading(false);
     }

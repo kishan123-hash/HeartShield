@@ -37,6 +37,9 @@ export default function DoctorPatientReviewPage() {
       try {
         const res = await api.get(`/doctors/patients/${id}`);
         setPatientData(res.data);
+        if (res.data?.latest_report?.doctor_notes) {
+          setNotes(res.data.latest_report.doctor_notes);
+        }
       } catch (err) {
         console.error('Error fetching patient details:', err);
         setErrorMsg('Failed to load patient clinical file.');
@@ -51,26 +54,38 @@ export default function DoctorPatientReviewPage() {
   }, [id]);
 
   const handleApproveReport = async () => {
+    const reportId = patientData?.latest_report?.id || patientData?.latest_prediction?.id;
+    if (!reportId) {
+      setErrorMsg('No active clinical assessment or prediction found to verify.');
+      return;
+    }
+
+    if (!notes.trim()) {
+      setErrorMsg('Please enter physician clinical assessment notes before approving.');
+      return;
+    }
+
     setSavingNotes(true);
     setSuccessMsg('');
     setErrorMsg('');
     try {
-      // Find latest report or prediction if exists
-      const reportId = patientData?.latest_report?.id || patientData?.latest_prediction?.id;
-      if (reportId) {
-        try {
-          await api.put(`/reports/${reportId}/approve`, {
-            is_approved: true,
-            doctor_notes: notes || 'Clinical assessment and AI findings verified by attending physician.',
-          });
-        } catch (e) {
-          console.warn('Direct approve fallback:', e);
-        }
+      const response = await api.put(`/reports/${reportId}/approve`, {
+        is_approved: true,
+        doctor_notes: notes.trim(),
+        recommendations: notes.trim(),
+      });
+      if (response.data) {
+        setSuccessMsg('Clinical evaluation verified and saved to patient record.');
+        setPatientData((prev) => ({
+          ...prev,
+          latest_report: response.data,
+        }));
       }
-      setSuccessMsg('Clinical evaluation verified and saved to patient record.');
     } catch (err) {
       console.error('Approval error:', err);
-      setErrorMsg('Failed to update clinical review status.');
+      const detail = err.response?.data?.detail;
+      const errorText = typeof detail === 'string' ? detail : 'Failed to update clinical review status. Please try again.';
+      setErrorMsg(errorText);
     } finally {
       setSavingNotes(false);
     }
@@ -246,6 +261,15 @@ export default function DoctorPatientReviewPage() {
             placeholder="Enter clinical assessment notes (e.g. Schedule ambulatory 24h Holter monitoring, initiate low-dose statin therapy, recommend Mediterranean diet)..."
             className="w-full p-4 bg-warm-bg border border-warm-border rounded-2xl text-xs text-gray-900 focus:outline-none focus:border-brand-800 transition-all leading-relaxed"
           />
+
+          {patientData?.latest_report?.is_approved && (
+            <div className="flex items-center space-x-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2.5 rounded-2xl">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>
+                Report is currently Verified &amp; Signed Off {patientData.latest_report.approved_at ? `(${new Date(patientData.latest_report.approved_at).toLocaleDateString()})` : ''}. You can update notes and re-approve anytime.
+              </span>
+            </div>
+          )}
 
           <div className="flex justify-end space-x-3 pt-2">
             <button

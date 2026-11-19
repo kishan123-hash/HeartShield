@@ -25,6 +25,7 @@ from app.api.xai import router as xai_router
 from app.api.reports import router as reports_router
 from app.api.recommendations import router as recommendations_router
 from app.api.admin import router as admin_router
+from app.api.contact import router as contact_router
 
 try:
     from app.api import lifestyle
@@ -221,6 +222,7 @@ app.include_router(medical_reports_router)
 app.include_router(consultations_router)
 app.include_router(consultation_chat_router)
 app.include_router(doctor_assessments_router)
+app.include_router(contact_router)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

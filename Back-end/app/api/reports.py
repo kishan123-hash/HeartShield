@@ -24,6 +24,7 @@ from app.schemas.report import (
     ReportStatistics,
     ReportDownloadResponse,
     ReportApprovalRequest,
+    ReportApprovalResponse,
 )
 
 
@@ -704,7 +705,7 @@ def download_report(
 
 @router.put(
     "/{report_id}/approve",
-    response_model=ReportResponse,
+    response_model=ReportApprovalResponse,
     summary="Approve report",
     description="Approve a report (doctor/admin only)"
 )
@@ -722,16 +723,95 @@ def approve_report(
     - **doctor_notes**: Optional approval notes from doctor
     """
 
+    # 1. Try to find existing report by primary key ID
     report = db.query(Report).filter(
         Report.id == report_id
     ).first()
 
+    # 2. If not found, check if report_id was actually a prediction_id
     if not report:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Report {report_id} not found"
-        )
+        report = db.query(Report).filter(
+            Report.prediction_id == report_id
+        ).first()
 
+    # 3. If still not found, check if ModelPrediction exists with this ID
+    if not report:
+        prediction = db.query(ModelPrediction).filter(
+            ModelPrediction.id == report_id
+        ).first()
+
+        if not prediction:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report or prediction with ID {report_id} not found"
+            )
+
+        assessment = db.query(Assessment).filter(
+            Assessment.id == prediction.assessment_id
+        ).first()
+
+        if not assessment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Associated assessment record not found"
+            )
+
+        patient = db.query(Patient).filter(
+            Patient.id == assessment.patient_id
+        ).first()
+
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient profile not found"
+            )
+
+        doctor = None
+        if current_user.role == "doctor":
+            from app.models.doctor import Doctor
+            from app.models.doctor_patient_relationship import DoctorPatientRelationship
+            doctor = db.query(Doctor).filter(Doctor.user_id == current_user.id).first()
+            if not doctor:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Doctor profile not found"
+                )
+            is_assigned = patient and patient.assigned_doctor_id == doctor.id
+            is_rel = db.query(DoctorPatientRelationship).filter(
+                DoctorPatientRelationship.doctor_id == doctor.id,
+                DoctorPatientRelationship.patient_id == patient.id,
+                DoctorPatientRelationship.relationship_status.in_(["approved", "active"])
+            ).first() is not None
+            if not is_assigned and not is_rel:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access forbidden: Patient is not under your supervision"
+                )
+
+        prob_pct = int(round(float(prediction.ensemble_probability or 0) * 100))
+        report = Report(
+            prediction_id=prediction.id,
+            patient_id=patient.id,
+            doctor_id=doctor.id if doctor else None,
+            title=f"Heart Disease Risk Assessment Report - Patient {patient.id}",
+            description=f"Verified on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}",
+            executive_summary=f"Clinical evaluation verified by attending physician for {prediction.prediction_label} ({prob_pct}% risk).",
+            clinical_findings=f"Biometrics: BP {assessment.systolic_bp}/{assessment.diastolic_bp} mmHg, HR {assessment.heart_rate} bpm, BMI {assessment.bmi}.",
+            risk_assessment=f"Assessed Risk: {prediction.risk_level} ({prob_pct}% calculated probability).",
+            doctor_notes=data.doctor_notes or "Clinical assessment verified by attending physician.",
+            recommendations=data.recommendations or data.doctor_notes or "Clinical follow-up and lifestyle monitoring recommended.",
+            status="verified" if data.is_approved else "rejected",
+            is_approved=data.is_approved,
+            approved_by_id=current_user.id,
+            approved_at=datetime.utcnow() if data.is_approved else None
+        )
+        db.add(report)
+        db.commit()
+        db.refresh(report)
+        return report
+
+    # Existing report found: verify doctor supervision
+    doctor = None
     if current_user.role == "doctor":
         from app.models.doctor import Doctor
         from app.models.doctor_patient_relationship import DoctorPatientRelationship
@@ -756,15 +836,20 @@ def approve_report(
 
     report.is_approved = data.is_approved
     report.approved_by_id = current_user.id
+    if doctor:
+        report.doctor_id = doctor.id
     report.approved_at = datetime.utcnow() if data.is_approved else None
 
     if data.doctor_notes:
-        report.doctor_notes = (
-            (report.doctor_notes or "") + "\n---\n" + data.doctor_notes
-        )
+        report.doctor_notes = data.doctor_notes
+
+    if data.recommendations:
+        report.recommendations = data.recommendations
+    elif data.doctor_notes and not report.recommendations:
+        report.recommendations = data.doctor_notes
 
     if data.is_approved:
-        report.status = "approved"
+        report.status = "verified"
     else:
         report.status = "rejected"
 

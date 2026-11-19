@@ -23,6 +23,8 @@ import RiskAssessmentPage from './pages/RiskAssessmentPage';
 import PredictionResultPage from './pages/PredictionResultPage';
 import PatientReportPage from './pages/PatientReportPage';
 import PredictionHistoryPage from './pages/PredictionHistoryPage';
+import PatientVerifiedReportsPage from './pages/PatientVerifiedReportsPage';
+import PatientVerifiedReportDetailPage from './pages/PatientVerifiedReportDetailPage';
 import MedicalReportsPage from './pages/MedicalReportsPage';
 import ChatbotPage from './pages/ChatbotPage';
 import ChatPage from './pages/ChatPage';
@@ -39,6 +41,7 @@ import DoctorAssessmentsPage from './pages/DoctorAssessmentsPage';
 // Admin Pages (Screens 18 & 23)
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import DoctorApprovalsPage from './pages/DoctorApprovalsPage';
+import ContactInboxPage from './pages/ContactInboxPage';
 
 export default function App() {
   return (
@@ -66,6 +69,8 @@ export default function App() {
         <Route path="/patient/prediction-result/:id" element={<PredictionResultPage />} />
         <Route path="/patient/report/:id" element={<PatientReportPage />} />
         <Route path="/patient/history" element={<PredictionHistoryPage />} />
+        <Route path="/patient/verified-reports" element={<PatientVerifiedReportsPage />} />
+        <Route path="/patient/verified-reports/:id" element={<PatientVerifiedReportDetailPage />} />
         <Route path="/patient/medical-reports" element={<MedicalReportsPage />} />
         <Route path="/patient/chat" element={<ChatbotPage />} />
         <Route path="/patient/notifications" element={<NotificationsPage />} />
@@ -85,6 +90,7 @@ export default function App() {
       {/* Admin Protected Routes */}
       <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
         <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+        <Route path="/admin/contact-inbox" element={<ContactInboxPage />} />
         <Route path="/admin/approvals" element={<DoctorApprovalsPage />} />
       </Route>
 

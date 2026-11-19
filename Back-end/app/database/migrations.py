@@ -66,6 +66,18 @@ def run_migrations():
                 except Exception as enum_err:
                     logger.warning(f"Note on ENUM update: {enum_err}")
 
+            # Check and update reports table for doctor_id
+            if "reports" in tables:
+                rep_cols = [c["name"] for c in inspector.get_columns("reports")]
+                if "doctor_id" not in rep_cols:
+                    logger.info("Adding 'doctor_id' column to reports table...")
+                    try:
+                        conn.execute(text("ALTER TABLE reports ADD COLUMN doctor_id BIGINT UNSIGNED NULL;"))
+                        conn.commit()
+                        logger.info("Column 'doctor_id' added to reports.")
+                    except Exception as rep_err:
+                        logger.error(f"Error adding doctor_id to reports: {rep_err}")
+
         # Check required tables
         required_tables = [
             "users",
@@ -73,6 +85,8 @@ def run_migrations():
             "doctors",
             "assessments",
             "model_predictions",
+            "reports",
+            "contact_messages",
             "account_unlock_tokens",
             "activity_logs",
             "otp_verifications"

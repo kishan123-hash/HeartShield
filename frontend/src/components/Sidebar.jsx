@@ -14,7 +14,9 @@ import {
   MessageCircle,
   Stethoscope,
   Menu,
-  X
+  X,
+  Inbox,
+  FileCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -35,6 +37,7 @@ export default function Sidebar() {
     { name: 'Chat with Doctor', path: '/patient/doctor-chat', icon: MessageCircle },
     { name: 'Risk Assessment', path: '/patient/assessment', icon: Activity },
     { name: 'Prediction History', path: '/patient/history', icon: Clock },
+    { name: 'Verified Reports', path: '/patient/verified-reports', icon: FileCheck },
     { name: 'Medical Reports', path: '/patient/medical-reports', icon: FileText },
     { name: 'AI Health Chat', path: '/patient/chat', icon: Bot, badge: 'Gemini' },
     { name: 'Notifications', path: '/patient/notifications', icon: Bell },
@@ -53,6 +56,7 @@ export default function Sidebar() {
 
   const adminLinks = [
     { name: 'Admin Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
+    { name: 'Contact Inbox', path: '/admin/contact-inbox', icon: Inbox },
     { name: 'Doctor Approvals', path: '/admin/approvals', icon: UserCheck },
     { name: 'System Settings', path: '/patient/settings', icon: Settings },
   ];

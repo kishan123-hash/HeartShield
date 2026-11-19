@@ -46,6 +46,16 @@ class Report(Base):
         index=True
     )
 
+    doctor_id = Column(
+        BIGINT(unsigned=True),
+        ForeignKey(
+            "doctors.id",
+            ondelete="SET NULL"
+        ),
+        nullable=True,
+        index=True
+    )
+
     # ==========================================
     # REPORT METADATA
     # ==========================================
